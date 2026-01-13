@@ -181,13 +181,17 @@ async def main():
     
     async with client:
         # Connect and authenticate
-        if not SESSION_STRING:
-            logger.info("🔐 جاري تسجيل الدخول...")
-            await client.start(phone=TELEGRAM_PHONE)
-            
-            # Get session string for future use
-            session_string = client.session.save()
-            logger.info(f"📝 SESSION_STRING: {session_string}")
+        try:
+            if SESSION_STRING:
+                logger.info("✅ استخدام SESSION_STRING الموجود...")
+                await client.connect()
+            else:
+                logger.error("❌ SESSION_STRING غير موجود!")
+                logger.info("🔐 جاري تسجيل الدخول...")
+                await client.start(phone=TELEGRAM_PHONE, code_callback=None)
+        except Exception as e:
+            logger.error(f"❌ خطأ في الاتصال: {e}")
+            return
         
         logger.info(f"👂 البوت يستمع للرسائل من: {', '.join(SOURCE_CHANNELS)}")
         logger.info(f"📤 البوت سيرسل الرسائل إلى: {DESTINATION_CHANNEL}")
