@@ -170,8 +170,10 @@ async def main():
     """Main function - connect and listen for messages"""
     
     # Create Telethon client
-    if not SESSION_STRING:
+    logger.info(f"DEBUG: SESSION_STRING length = {len(SESSION_STRING) if SESSION_STRING else 0}")
+    if not SESSION_STRING or SESSION_STRING.strip() == "":
         logger.error("❌ SESSION_STRING غير موجود! يجب تعيين SESSION_STRING في متغيرات البيئة!")
+        logger.error(f"DEBUG: SESSION_STRING value = '{SESSION_STRING}'")
         return
     
     # Use existing session
