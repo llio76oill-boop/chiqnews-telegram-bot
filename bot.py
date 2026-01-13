@@ -40,6 +40,21 @@ DESTINATION_CHANNEL = os.getenv('DESTINATION_CHANNEL', '@AjeelNewsIq')
 REWRITE_STYLE = os.getenv('REWRITE_STYLE', 'professional')
 
 # ============================================================================
+# نظام الأولويات
+# ============================================================================
+
+# قائمة الأولويات (من الأعلى إلى الأقل)
+CHANNEL_PRIORITIES = {
+    'AjaNews': 1,           # الأولوية الأولى (الأعلى)
+    'AlarabyTvBrk': 2,      # الأولوية الثانية
+    'llio76ioll': 3         # الأولوية الثالثة (الأقل)
+}
+
+def get_channel_priority(channel_name):
+    """الحصول على أولوية القناة"""
+    return CHANNEL_PRIORITIES.get(channel_name, 999)  # 999 للقنوات غير المعروفة
+
+# ============================================================================
 # تهيئة المكونات
 # ============================================================================
 
@@ -186,7 +201,13 @@ async def handle_new_message(event):
         if not message_text:
             return
         
-        logger.info(f"📨 رسالة جديدة: {message_text[:50]}...")
+        # الحصول على اسم القناة
+        chat = await event.get_chat()
+        channel_name = chat.title or chat.username or str(chat.id)
+        channel_priority = get_channel_priority(channel_name)
+        
+        logger.info(f"📨 رسالة جديدة من {channel_name} (الأولوية: {channel_priority})")
+        logger.info(f"   النص: {message_text[:50]}...")
         
         # معالجة الرسالة
         result = process_message(message_text)
