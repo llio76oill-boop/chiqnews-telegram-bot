@@ -20,9 +20,12 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 SESSION_STRING = os.getenv("SESSION_STRING", "")
 SOURCE_CHANNELS = os.getenv("SOURCE_CHANNELS", "").split(",")
 DESTINATION_CHANNEL = os.getenv("DESTINATION_CHANNEL", "")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 REWRITE_STYLE = os.getenv("REWRITE_STYLE", "احترافي وموضوعي")
 FOOTER_TEXT = os.getenv("FOOTER_TEXT", "تابعنا على @AjeelNewsIq")
+
+# Groq API endpoint
+GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 # Initialize Telegram client
 if SESSION_STRING:
@@ -96,13 +99,10 @@ def clean_text(text: str) -> str:
     
     return text
 
-def enhance_text_with_ai(text: str) -> str:
-    """
-    Enhance and rewrite text using multiple AI API options
-    Tries multiple endpoints with fallback strategy
-    """
+async def rewrite_text_with_groq(text: str) -> str:
+    """Rewrite text using Groq API"""
     try:
-        logger.info("✍️ جاري إعادة صياغة النص...")
+        logger.info("✍️ جاري إعادة صياغة النص باستخدام Groq...")
         
         # Clean the text first
         text_to_rewrite = clean_text(text)
@@ -111,93 +111,71 @@ def enhance_text_with_ai(text: str) -> str:
             logger.warning("⚠️ النص فارغ بعد التنظيف")
             return text
         
-        if not OPENAI_API_KEY:
-            logger.error("❌ OPENAI_API_KEY غير موجود")
+        if not GROQ_API_KEY:
+            logger.error("❌ GROQ_API_KEY غير موجود")
             return text_to_rewrite
         
-        prompt = f"""أعد صياغة النص الإخباري التالي بأسلوب {REWRITE_STYLE} واحترافي وموضوعي وشامل. يجب أن تكون النتيجة بالعربية وطويلة وتفصيلية وأصلية.
+        prompt = f"""أنت محرر أخبار محترف متخصص في إعادة صياغة الأخبار بأسلوب احترافي وأصلي وموضوعي.
+
+أعد صياغة النص الإخباري التالي بأسلوب {REWRITE_STYLE} واحترافي وموضوعي وشامل. يجب أن تكون النتيجة:
+- بالعربية الفصحى
+- طويلة وتفصيلية
+- أصلية وغير منقولة
+- خالية من أسماء المصادر الأخرى
 
 النص الأصلي:
 {text_to_rewrite}
 
 النص المعاد صياغته:"""
         
-        # Try multiple endpoints
-        endpoints = [
-            {
-                "url": "https://api.openai.com/v1/chat/completions",
-                "headers": {
-                    "Authorization": f"Bearer {OPENAI_API_KEY}",
-                    "Content-Type": "application/json"
-                },
-                "name": "OpenAI Official"
-            },
-            {
-                "url": "https://api.manus.ai/v1/chat/completions",
-                "headers": {
-                    "API_KEY": OPENAI_API_KEY,
-                    "Content-Type": "application/json"
-                },
-                "name": "Manus AI (.ai)"
-            },
-            {
-                "url": "https://api.manus.im/v1/chat/completions",
-                "headers": {
-                    "API_KEY": OPENAI_API_KEY,
-                    "Content-Type": "application/json"
-                },
-                "name": "Manus AI (.im)"
-            },
-        ]
+        headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        }
         
         payload = {
-            "model": "gpt-4.1-mini",
+            "model": "mixtral-8x7b-32768",  # Fast and reliable model
             "messages": [
                 {"role": "system", "content": "أنت محرر أخبار محترف متخصص في إعادة صياغة الأخبار بشكل احترافي وأصلي"},
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.7,
-            "max_tokens": 1000
+            "max_tokens": 1000,
+            "top_p": 0.9
         }
         
-        # Try each endpoint
-        for endpoint in endpoints:
-            try:
-                logger.info(f"🔄 محاولة الاتصال بـ {endpoint['name']}...")
-                response = requests.post(
-                    endpoint["url"],
-                    json=payload,
-                    headers=endpoint["headers"],
-                    timeout=10
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    
-                    if "choices" in result and len(result["choices"]) > 0:
-                        rewritten = result["choices"][0]["message"]["content"].strip()
-                        
-                        if rewritten:
-                            logger.info(f"✨ تمت إعادة الصياغة بنجاح عبر {endpoint['name']}!")
-                            return rewritten
-                        else:
-                            logger.warning(f"⚠️ الرد من {endpoint['name']} فارغ")
-                    else:
-                        logger.warning(f"⚠️ رد غير متوقع من {endpoint['name']}: {result}")
-                else:
-                    logger.warning(f"⚠️ {endpoint['name']} أرجع الكود {response.status_code}")
-                    
-            except requests.exceptions.Timeout:
-                logger.warning(f"⏱️ انتهت مهلة {endpoint['name']}")
-            except requests.exceptions.ConnectionError:
-                logger.warning(f"🔌 فشل الاتصال بـ {endpoint['name']}")
-            except Exception as e:
-                logger.warning(f"⚠️ خطأ في {endpoint['name']}: {e}")
+        response = requests.post(
+            GROQ_API_URL,
+            json=payload,
+            headers=headers,
+            timeout=30
+        )
         
-        # If all endpoints fail, return the cleaned text
-        logger.warning("⚠️ فشلت جميع محاولات الاتصال بـ API، سيتم إرسال النص المنظف")
-        return text_to_rewrite
+        if response.status_code == 200:
+            result = response.json()
             
+            if "choices" in result and len(result["choices"]) > 0:
+                rewritten = result["choices"][0]["message"]["content"].strip()
+                
+                if rewritten:
+                    logger.info("✨ تمت إعادة الصياغة بنجاح عبر Groq!")
+                    return rewritten
+                else:
+                    logger.warning("⚠️ الرد من Groq فارغ")
+                    return text_to_rewrite
+            else:
+                logger.warning(f"⚠️ رد غير متوقع من Groq: {result}")
+                return text_to_rewrite
+        else:
+            logger.error(f"❌ خطأ من Groq: {response.status_code} - {response.text}")
+            return text_to_rewrite
+            
+    except requests.exceptions.Timeout:
+        logger.error("⏱️ انتهت مهلة الاتصال بـ Groq")
+        return text
+    except requests.exceptions.ConnectionError:
+        logger.error("🔌 فشل الاتصال بـ Groq")
+        return text
     except Exception as e:
         logger.error(f"❌ خطأ في إعادة الصياغة: {e}")
         return text
@@ -230,8 +208,8 @@ async def handle_new_message(event):
             logger.info("🚫 تم تجاهل الرسالة (إعلان أو محتوى غير مرغوب)")
             return
         
-        # Rewrite the text
-        rewritten_text = enhance_text_with_ai(text)
+        # Rewrite the text using Groq
+        rewritten_text = await rewrite_text_with_groq(text)
         
         # Send to destination
         await send_to_destination(rewritten_text)
@@ -263,7 +241,7 @@ async def main():
         
         logger.info(f"👂 البوت يستمع للرسائل من: {', '.join(source_channels_clean)}")
         logger.info(f"📤 البوت سيرسل الرسائل إلى: {DESTINATION_CHANNEL}")
-        logger.info(f"🤖 استخدام AI API (مع خيارات متعددة) لإعادة الصياغة")
+        logger.info(f"🤖 استخدام Groq API لإعادة الصياغة (مجاني وسريع)")
         logger.info("🚀 البوت جاهز للاستقبال...")
         
         await client.run_until_disconnected()
