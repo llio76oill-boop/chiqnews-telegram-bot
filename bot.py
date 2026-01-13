@@ -1,237 +1,250 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import logging
+"""
+بوت معالجة الأخبار المتقدم
+Advanced News Processing Bot with Smart Filtering and Professional Rewriting
+"""
+
 import os
-import re
-import requests
+import sys
+import logging
+import asyncio
+from datetime import datetime
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
+from filter_module import SmartFilter
+from rewrite_module import AdvancedRewriter
 
-# إعداد السجل
+# ============================================================================
+# إعداد السجلات
+# ============================================================================
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - [%(levelname)s] - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# البيانات من متغيرات البيئة
-TELEGRAM_API_ID = int(os.getenv('TELEGRAM_API_ID', ''))
+# ============================================================================
+# متغيرات البيئة
+# ============================================================================
+
+TELEGRAM_API_ID = int(os.getenv('TELEGRAM_API_ID', '0'))
 TELEGRAM_API_HASH = os.getenv('TELEGRAM_API_HASH', '')
 TELEGRAM_PHONE = os.getenv('TELEGRAM_PHONE', '')
-SOURCE_CHANNELS = os.getenv('SOURCE_CHANNELS', 'AjaNews,llio76ioll,AlarabyTvBrk').split(',')
-DESTINATION_CHANNEL = os.getenv('DESTINATION_CHANNEL', '@AjeelNewsIq')
 SESSION_STRING = os.getenv('SESSION_STRING', '')
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
+SOURCE_CHANNELS = [ch.strip() for ch in os.getenv('SOURCE_CHANNELS', 'AjaNews,llio76ioll,AlarabyTvBrk').split(',')]
+DESTINATION_CHANNEL = os.getenv('DESTINATION_CHANNEL', '@AjeelNewsIq')
+REWRITE_STYLE = os.getenv('REWRITE_STYLE', 'professional')
 
-# إنشاء العميل باستخدام StringSession لتجنب مشاكل قاعدة البيانات
+# ============================================================================
+# تهيئة المكونات
+# ============================================================================
+
+filter_system = SmartFilter()
+rewriter = AdvancedRewriter()
+stored_texts = []  # لتخزين النصوص المعالجة
+
+# إنشاء عميل Telegram باستخدام StringSession
 if SESSION_STRING:
     session = StringSession(SESSION_STRING)
 else:
-    session = StringSession()  # جلسة جديدة
+    session = StringSession()
 
 client = TelegramClient(session, TELEGRAM_API_ID, TELEGRAM_API_HASH)
 
-def clean_text(text):
-    """تنظيف النص من الرموز الزائدة"""
-    # إزالة الرموز الخاصة الزائدة
-    text = re.sub(r'[^\w\s\u0600-\u06FF\.\,\!\?\-\(\)\:\;]', '', text)
-    # إزالة المسافات الزائدة
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
+# ============================================================================
+# دوال المعالجة
+# ============================================================================
 
-def rewrite_text_with_openai(text):
+def process_message(text: str) -> dict:
     """
-    إعادة صياغة النص باستخدام OpenAI API
-    الصياغة تكون بسيطة - تغيير طفيف فقط لتجنب الاستنساخ
-    """
-    try:
-        if not OPENAI_API_KEY:
-            logger.warning("⚠️ OpenAI API Key غير موجود، استخدام المعالجة المحلية")
-            return rewrite_text_locally(text)
-        
-        # تنظيف النص
-        text = clean_text(text)
-        
-        # إنشاء الـ prompt للصياغة البسيطة
-        prompt = f"""أعد صياغة هذا الخبر بشكل بسيط جداً - غير الكلمات والتراكيب قليلاً فقط لتجنب الاستنساخ، لكن احتفظ بنفس المعنى والمعلومات:
-
-الخبر الأصلي:
-{text}
-
-المطلوب:
-- صياغة بسيطة وموجزة
-- تغيير طفيف في الكلمات والتراكيب
-- الحفاظ على نفس المعنى والمعلومات
-- بدون إضافة معلومات جديدة
-- بدون نصوص إضافية أو شروح
-
-الخبر المعاد صياغته:"""
-
-        # استدعاء OpenAI API
-        headers = {
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
-            "Content-Type": "application/json"
+    معالجة شاملة للرسالة
+    
+    Returns:
+        {
+            'passed': bool,
+            'original': str,
+            'rewritten': str,
+            'filter_result': dict,
+            'rewrite_stats': dict,
+            'errors': [str]
         }
-        
-        payload = {
-            "model": "gpt-3.5-turbo",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            "temperature": 0.7,
-            "max_tokens": 500
-        }
-        
-        response = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=10
-        )
-        
-        if response.status_code == 200:
-            result = response.json()
-            rewritten = result['choices'][0]['message']['content'].strip()
-            logger.info("✨ تمت إعادة الصياغة بنجاح عبر OpenAI!")
-            return rewritten
-        else:
-            logger.warning(f"⚠️ خطأ من OpenAI: {response.status_code} - {response.text}")
-            return rewrite_text_locally(text)
-    
-    except Exception as e:
-        logger.warning(f"⚠️ خطأ في استدعاء OpenAI: {e}")
-        return rewrite_text_locally(text)
-
-def rewrite_text_locally(text):
     """
-    إعادة صياغة محلية بسيطة كبديل
-    """
+    errors = []
+    
     try:
-        text = clean_text(text)
+        # 1. الفلترة الذكية
+        logger.info("🔍 جاري فحص الرسالة...")
+        filter_result = filter_system.filter_text(text, stored_texts)
         
-        # تقسيم النص إلى جمل
-        sentences = re.split(r'(?<=[.!?])\s+', text)
+        if not filter_result['passed']:
+            logger.warning(f"❌ الرسالة لم تمر الفلترة:")
+            for reason in filter_result['reasons']:
+                logger.warning(f"   {reason}")
+            
+            return {
+                'passed': False,
+                'original': text,
+                'rewritten': None,
+                'filter_result': filter_result,
+                'rewrite_stats': None,
+                'errors': filter_result['reasons']
+            }
         
-        # معالجة كل جملة
-        processed_sentences = []
-        for sentence in sentences:
-            if len(sentence.strip()) > 0:
-                # إزالة الكلمات المكررة
-                words = sentence.split()
-                unique_words = []
-                for word in words:
-                    if word not in unique_words or len(unique_words) < 3:
-                        unique_words.append(word)
-                
-                # إعادة بناء الجملة
-                processed_sentence = ' '.join(unique_words)
-                
-                # إضافة علامات ترقيم إذا لزم الأمر
-                if not processed_sentence.endswith(('.', '!', '?')):
-                    processed_sentence += '.'
-                
-                processed_sentences.append(processed_sentence)
+        logger.info(f"✅ الرسالة موثوقة: {filter_result['reasons'][0]}")
         
-        # دمج الجمل المعاد صياغتها
-        rewritten = ' '.join(processed_sentences)
-        
-        logger.info("✨ تمت إعادة الصياغة بنجاح محلياً!")
-        return rewritten
-    
-    except Exception as e:
-        logger.warning(f"⚠️ خطأ في إعادة الصياغة: {e}")
-        return text
-
-def replace_reporter_names(text):
-    """استبدال أسماء المراسلين بـ 'مراسلنا'"""
-    # قائمة الأنماط الشائعة لأسماء المراسلين
-    patterns = [
-        r'مراسل\s+\w+',
-        r'مراسلتنا\s+\w+',
-        r'مراسلنا\s+\w+',
-        r'المراسل\s+\w+',
-        r'المراسلة\s+\w+',
-    ]
-    
-    for pattern in patterns:
-        text = re.sub(pattern, 'مراسلنا', text)
-    
-    return text
-
-def is_advertisement(text):
-    """التحقق من أن النص ليس إعلاناً"""
-    ad_keywords = [
-        'اشتري', 'اشترِ', 'شراء', 'عرض خاص', 'خصم', 'توفير',
-        'اتصل الآن', 'اطلب الآن', 'اضغط هنا', 'رابط', 'لينك',
-        'تطبيق', 'تحميل', 'download', 'app', 'click',
-        'إعلان', 'sponsore', 'promoted', 'iklan'
-    ]
-    
-    text_lower = text.lower()
-    for keyword in ad_keywords:
-        if keyword in text_lower:
-            return True
-    
-    return False
-
-async def process_message(event):
-    """معالجة الرسالة الواردة"""
-    try:
-        # الحصول على النص
-        text = event.message.text
-        
-        if not text:
-            return
-        
-        logger.info(f"📨 رسالة جديدة: {text[:50]}...")
-        
-        # التحقق من أنها ليست إعلاناً
-        if is_advertisement(text):
-            logger.info("🚫 تم تجاهل الرسالة (إعلان)")
-            return
-        
-        # إعادة صياغة النص
+        # 2. إعادة الصياغة
         logger.info("✍️ جاري إعادة صياغة النص...")
-        rewritten_text = rewrite_text_with_openai(text)
+        rewritten = rewriter.rewrite(text, style=REWRITE_STYLE)
         
-        # استبدال أسماء المراسلين
-        rewritten_text = replace_reporter_names(rewritten_text)
+        # 3. حساب الإحصائيات
+        rewrite_stats = rewriter.get_rewrite_stats(text, rewritten)
         
-        # إضافة البادئة والخاتمة
-        final_text = f"🔴 {rewritten_text}\n\nتابعنا على @AjeelNewsIq"
+        logger.info(f"📊 إحصائيات الصياغة:")
+        logger.info(f"   - نسبة التغيير: {rewrite_stats['change_ratio']:.0%}")
+        logger.info(f"   - عدد الكلمات: {rewrite_stats['original_length']} → {rewrite_stats['rewritten_length']}")
+        
+        # 4. إضافة إلى قائمة النصوص المخزنة
+        stored_texts.append(text)
+        if len(stored_texts) > 100:  # الاحتفاظ بآخر 100 نص فقط
+            stored_texts.pop(0)
+        
+        return {
+            'passed': True,
+            'original': text,
+            'rewritten': rewritten,
+            'filter_result': filter_result,
+            'rewrite_stats': rewrite_stats,
+            'errors': []
+        }
+    
+    except Exception as e:
+        error_msg = f"❌ خطأ في المعالجة: {str(e)}"
+        logger.error(error_msg)
+        errors.append(error_msg)
+        
+        return {
+            'passed': False,
+            'original': text,
+            'rewritten': None,
+            'filter_result': None,
+            'rewrite_stats': None,
+            'errors': errors
+        }
+
+
+def format_message(text: str) -> str:
+    """
+    تنسيق الرسالة للنشر
+    """
+    # استبدال أسماء المراسلين
+    text = text.replace('مراسل', 'مراسلنا')
+    text = text.replace('مراسلة', 'مراسلتنا')
+    text = text.replace('المراسل', 'مراسلنا')
+    text = text.replace('المراسلة', 'مراسلتنا')
+    
+    # إضافة البادئة
+    text = f"🔴 {text}"
+    
+    # إضافة الخاتمة
+    text = f"{text}\n\nتابعنا على @AjeelNewsIq"
+    
+    return text
+
+
+async def send_to_destination(text: str) -> bool:
+    """
+    إرسال الرسالة إلى قناة الوجهة
+    """
+    try:
+        logger.info(f"📤 جاري الإرسال إلى {DESTINATION_CHANNEL}...")
+        
+        await client.send_message(DESTINATION_CHANNEL, text)
+        
+        logger.info("✅ تم الإرسال بنجاح!")
+        return True
+    
+    except Exception as e:
+        logger.error(f"❌ خطأ في الإرسال: {str(e)}")
+        return False
+
+
+# ============================================================================
+# معالجات الأحداث
+# ============================================================================
+
+async def handle_new_message(event):
+    """
+    معالج الرسائل الجديدة من القنوات المصدر
+    """
+    try:
+        message_text = event.message.text
+        
+        if not message_text:
+            return
+        
+        logger.info(f"📨 رسالة جديدة: {message_text[:50]}...")
+        
+        # معالجة الرسالة
+        result = process_message(message_text)
+        
+        if not result['passed']:
+            logger.warning(f"⏭️ تم تجاهل الرسالة")
+            return
+        
+        # تنسيق الرسالة
+        formatted_text = format_message(result['rewritten'])
         
         # إرسال الرسالة
-        await client.send_message(DESTINATION_CHANNEL, final_text)
-        logger.info("✅ تم الإرسال بنجاح إلى @AjeelNewsIq!")
+        success = await send_to_destination(formatted_text)
+        
+        if success:
+            logger.info("✅ تمت معالجة الرسالة بنجاح!")
+        else:
+            logger.error("❌ فشل إرسال الرسالة")
     
     except Exception as e:
-        logger.error(f"❌ خطأ في معالجة الرسالة: {e}")
+        logger.error(f"❌ خطأ في معالجة الرسالة: {str(e)}")
+
+
+# ============================================================================
+# البرنامج الرئيسي
+# ============================================================================
 
 async def main():
-    """الدالة الرئيسية"""
+    """
+    البرنامج الرئيسي
+    """
+    logger.info("🚀 جاري بدء البوت المتقدم...")
+    
+    # التحقق من المتغيرات المطلوبة
+    if not TELEGRAM_API_ID or not TELEGRAM_API_HASH:
+        logger.error("❌ خطأ: TELEGRAM_API_ID أو TELEGRAM_API_HASH غير محددة")
+        return
+    
     try:
         # الاتصال بـ Telegram
-        logger.info("✅ جاري الاتصال بـ Telegram...")
+        logger.info("🔌 جاري الاتصال بـ Telegram...")
         await client.start(phone=TELEGRAM_PHONE)
-        logger.info("✅ تم التفويض بنجاح!")
         
-        # تسجيل المستمعين
-        logger.info(f"👂 البوت يستمع للرسائل من: {', '.join(SOURCE_CHANNELS)}")
-        logger.info(f"📤 البوت سيرسل الرسائل إلى: {DESTINATION_CHANNEL}")
-        logger.info("🤖 استخدام OpenAI API لإعادة الصياغة البسيطة")
-        logger.info("🚀 البوت جاهز للاستقبال...")
+        logger.info("✅ تم الاتصال بنجاح!")
+        logger.info(f"📡 القنوات المراقبة: {', '.join(SOURCE_CHANNELS)}")
+        logger.info(f"📤 قناة الوجهة: {DESTINATION_CHANNEL}")
+        logger.info(f"🎨 أسلوب الصياغة: {REWRITE_STYLE}")
+        logger.info(f"🔍 نظام الفلترة الذكية: مفعل")
+        logger.info(f"✍️ نظام الصياغة المتقدمة: مفعل")
         
         # إضافة معالج الأحداث لكل قناة
         for channel in SOURCE_CHANNELS:
-            channel = channel.strip()
             @client.on(events.NewMessage(chats=channel))
             async def handler(event):
-                await process_message(event)
+                await handle_new_message(event)
+        
+        logger.info("👂 جاري الاستماع للرسائل...")
+        logger.info("🟢 البوت جاهز للعمل!")
         
         # الاستماع للرسائل
         await client.run_until_disconnected()
@@ -239,10 +252,15 @@ async def main():
     except SessionPasswordNeededError:
         logger.error("❌ كلمة المرور مطلوبة!")
     except Exception as e:
-        logger.error(f"❌ خطأ: {e}")
+        logger.error(f"❌ خطأ حرج: {str(e)}")
     finally:
         await client.disconnect()
 
+
 if __name__ == '__main__':
-    import asyncio
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("⏹️ تم إيقاف البوت")
+    except Exception as e:
+        logger.error(f"❌ خطأ: {str(e)}")
