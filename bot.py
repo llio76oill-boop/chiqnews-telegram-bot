@@ -39,7 +39,7 @@ SESSION_STRING = os.getenv('SESSION_STRING', '')
 SOURCE_CHANNELS = [ch.strip() for ch in os.getenv('SOURCE_CHANNELS', 'AjaNews,llio76ioll,AlarabyTvBrk').split(',')]
 DESTINATION_CHANNEL = os.getenv('DESTINATION_CHANNEL', '@AjeelNewsIq')
 REWRITE_STYLE = os.getenv('REWRITE_STYLE', 'professional')
-DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', '')
+DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', 'sk-3654875960794adfa355c1befcea1f27')  # قيمة افتراضية للاختبار
 
 # ============================================================================
 # نظام الأولويات
