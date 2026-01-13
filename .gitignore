@@ -40,3 +40,4 @@ env/
 # Logs
 logs/
 *.log
+# Force redeploy - Tue Jan 13 18:19:22 EST 2026
