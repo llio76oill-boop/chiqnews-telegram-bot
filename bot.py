@@ -22,7 +22,11 @@ SESSION_STRING = os.getenv("SESSION_STRING", "")
 FOOTER_TEXT = os.getenv("FOOTER_TEXT", "")
 
 # Initialize OpenAI client (using Manus API)
-client_ai = OpenAI()
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+if not OPENAI_API_KEY:
+    logger.error("❌ OPENAI_API_KEY not found in environment variables!")
+    exit(1)
+client_ai = OpenAI(api_key=OPENAI_API_KEY)
 
 # Configure logging
 logging.basicConfig(
