@@ -4,7 +4,7 @@ import asyncio
 import re
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-import openai
+from openai import OpenAI
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -21,8 +21,8 @@ DESTINATION_CHANNEL = os.getenv("DESTINATION_CHANNEL")
 REWRITE_STYLE = os.getenv("REWRITE_STYLE", "professional")
 SESSION_STRING = os.getenv("SESSION_STRING", "")
 
-# Initialize OpenAI
-openai.api_key = OPENAI_API_KEY
+# Initialize OpenAI client
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
 # Configure logging
 logging.basicConfig(
@@ -96,8 +96,8 @@ async def rewrite_text_with_ai(text: str) -> str:
 
 النص المعاد صياغته:"""
         
-        response = openai.ChatCompletion.create(
-            model="gpt-4-mini",
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
             max_tokens=1024,
@@ -150,9 +150,7 @@ async def main():
             # Get session string for future use
             session_string = client.session.save()
             logger.info(f"📝 SESSION_STRING: {session_string}")
-            logger.info("⚠️ يرجى حفظ SESSION_STRING في متغيرات البيئة")
         
-        logger.info("▶️ جاري تشغيل البوت...")
         logger.info(f"👂 البوت يستمع للرسائل من: {', '.join(SOURCE_CHANNELS)}")
         logger.info(f"📤 البوت سيرسل الرسائل إلى: {DESTINATION_CHANNEL}")
         
@@ -160,55 +158,34 @@ async def main():
         async def handle_new_message(event):
             """Handle new messages from source channels"""
             try:
-                # Get message text
-                text = event.message.text or ""
-                
-                # Skip if no text
-                if not text:
-                    logger.info("📄 رسالة بدون نص، سيتم تجاهلها.")
-                    return
-                
-                # Get sender info
-                sender = await event.get_sender()
-                sender_name = sender.username or sender.first_name or "Unknown"
-                
-                logger.info(f"📩 رسالة جديدة من @{sender_name}: {text[:50]}...")
-                
-                # Create unique message identifier
-                msg_key = f"{sender_name}_{event.message.id}"
+                message_text = event.message.text
+                message_id = event.message.id
                 
                 # Skip if already processed
-                if msg_key in processed_messages:
-                    logger.info("⏭️ تجاهل الرسالة - تم معالجتها مسبقاً")
+                if message_id in processed_messages:
                     return
                 
-                processed_messages.add(msg_key)
+                processed_messages.add(message_id)
                 
-                # Check if it's an advertisement or unwanted content
-                if is_advertisement(text):
-                    logger.info(f"🚫 تجاهل الرسالة - إعلان أو محتوى غير مرغوب")
+                # Skip if it's an advertisement
+                if is_advertisement(message_text):
+                    logger.info(f"🚫 تم تجاهل إعلان: {message_text[:50]}...")
                     return
                 
-                # Rewrite text
-                rewritten_text = await rewrite_text_with_ai(text)
+                # Rewrite the message
+                rewritten_message = await rewrite_text_with_ai(message_text)
                 
-                # Build final message with custom format
-                final_text = f"<b>🔴 عاجل</b>\n\n{rewritten_text}\n\n<b>تابعنا لتكن أول بأول تعلم ما حولك</b>\n@AjeelNewsIq"
+                # Add "عاجل" prefix
+                final_message = f"عاجل | {rewritten_message}"
                 
-                # Send to destination
-                await send_message_to_channel(client, final_text, DESTINATION_CHANNEL)
+                # Send to destination channel
+                await send_message_to_channel(client, final_message, DESTINATION_CHANNEL)
                 
             except Exception as e:
                 logger.error(f"❌ خطأ في معالجة الرسالة: {e}")
         
         # Keep the client running
-        logger.info("🎯 البوت جاهز ويستقبل الرسائل...")
         await client.run_until_disconnected()
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("🛑 تم إيقاف البوت")
-    except Exception as e:
-        logger.error(f"❌ خطأ: {e}")
+    asyncio.run(main())
