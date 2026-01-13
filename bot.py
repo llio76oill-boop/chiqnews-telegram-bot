@@ -7,6 +7,13 @@ from telethon.sessions import StringSession
 from openai import OpenAI
 from dotenv import load_dotenv
 
+# Configure logging FIRST
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - [%(levelname)s] - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # Load environment variables
 load_dotenv()
 
@@ -28,12 +35,6 @@ if not OPENAI_API_KEY:
     exit(1)
 client_ai = OpenAI(api_key=OPENAI_API_KEY)
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - [%(levelname)s] - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 # Track processed messages to avoid duplicates
 processed_messages = set()
