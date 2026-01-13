@@ -20,6 +20,7 @@ SOURCE_CHANNELS = [ch.strip() for ch in os.getenv("SOURCE_CHANNELS", "").split("
 DESTINATION_CHANNEL = os.getenv("DESTINATION_CHANNEL")
 REWRITE_STYLE = os.getenv("REWRITE_STYLE", "professional")
 SESSION_STRING = os.getenv("SESSION_STRING", "")
+FOOTER_TEXT = os.getenv("FOOTER_TEXT", "")
 
 # Initialize Gemini
 genai.configure(api_key=GEMINI_API_KEY)
@@ -79,19 +80,38 @@ def is_advertisement(text: str) -> bool:
     
     return False
 
+def clean_text(text: str) -> str:
+    """Clean text by removing common prefixes"""
+    text = text.strip()
+    
+    # Remove "عاجل" and variations
+    if text.startswith("عاجل"):
+        text = text[4:].strip()
+    
+    # Remove red circle emoji
+    if text.startswith("🔴"):
+        text = text[1:].strip()
+    
+    # Remove pipes and separators
+    if text.startswith("|"):
+        text = text[1:].strip()
+    
+    return text
+
 async def rewrite_text_with_ai(text: str) -> str:
     """Rewrite text using Google Gemini"""
     try:
         logger.info("✍️ جاري إعادة صياغة النص...")
         
-        # Remove "عاجل" from the beginning if it exists
-        text_to_rewrite = text.strip()
-        if text_to_rewrite.startswith("عاجل"):
-            text_to_rewrite = text_to_rewrite[4:].strip()
-        if text_to_rewrite.startswith("|"):
-            text_to_rewrite = text_to_rewrite[1:].strip()
+        # Clean the text first
+        text_to_rewrite = clean_text(text)
         
-        prompt = f"""أعد صياغة النص الإخباري التالي بأسلوب {REWRITE_STYLE} واحترافي وموضوعي. يجب أن تكون النتيجة بالعربية. لا تكرر كلمة 'عاجل' في البداية.
+        if not text_to_rewrite:
+            logger.warning("⚠️ النص فارغ بعد التنظيف")
+            return text
+        
+        prompt = f"""أعد صياغة النص الإخباري التالي بأسلوب {REWRITE_STYLE} واحترافي وموضوعي وشامل. يجب أن تكون النتيجة بالعربية وطويلة وتفصيلية.
+
 النص الأصلي:
 {text_to_rewrite}
 
@@ -99,10 +119,16 @@ async def rewrite_text_with_ai(text: str) -> str:
         
         response = model.generate_content(prompt)
         rewritten = response.text.strip()
-        logger.info("✨ تمت إعادة الصياغة بنجاح!")
-        return rewritten
+        
+        if rewritten:
+            logger.info("✨ تمت إعادة الصياغة بنجاح!")
+            return rewritten
+        else:
+            logger.warning("⚠️ الرد من Gemini فارغ")
+            return text_to_rewrite
+            
     except Exception as e:
-        logger.warning(f"⚠️ فشلت إعادة الصياغة: {e}")
+        logger.error(f"❌ فشلت إعادة الصياغة: {e}")
         return text
 
 async def send_message_to_channel(client, text: str, channel: str):
@@ -111,9 +137,15 @@ async def send_message_to_channel(client, text: str, channel: str):
         # Remove @ if present
         channel_name = channel.lstrip('@')
         
+        # Build final message with red emoji and footer
+        final_text = f"🔴 {text}"
+        
+        if FOOTER_TEXT:
+            final_text += f"\n\n{FOOTER_TEXT}"
+        
         await client.send_message(
             channel_name,
-            text,
+            final_text,
             parse_mode='html',
             link_preview=False
         )
@@ -154,6 +186,11 @@ async def main():
             """Handle new messages from source channels"""
             try:
                 message_text = event.message.text
+                
+                # Skip if no text
+                if not message_text:
+                    return
+                
                 message_id = event.message.id
                 
                 # Skip if already processed
@@ -161,6 +198,8 @@ async def main():
                     return
                 
                 processed_messages.add(message_id)
+                
+                logger.info(f"📨 رسالة جديدة من {event.chat_id}: {message_text[:100]}...")
                 
                 # Skip if it's an advertisement
                 if is_advertisement(message_text):
@@ -170,16 +209,14 @@ async def main():
                 # Rewrite the message
                 rewritten_message = await rewrite_text_with_ai(message_text)
                 
-                # Add "عاجل" prefix
-                final_message = f"عاجل | {rewritten_message}"
-                
                 # Send to destination channel
-                await send_message_to_channel(client, final_message, DESTINATION_CHANNEL)
+                await send_message_to_channel(client, rewritten_message, DESTINATION_CHANNEL)
                 
             except Exception as e:
                 logger.error(f"❌ خطأ في معالجة الرسالة: {e}")
         
         # Keep the client running
+        logger.info("🚀 البوت جاهز للاستقبال...")
         await client.run_until_disconnected()
 
 if __name__ == "__main__":
