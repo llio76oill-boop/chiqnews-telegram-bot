@@ -83,9 +83,16 @@ async def rewrite_text_with_ai(text: str) -> str:
     try:
         logger.info("✍️ جاري إعادة صياغة النص...")
         
-        prompt = f"""أعد صياغة النص الإخباري التالي بأسلوب {REWRITE_STYLE} واحترافي وموضوعي. يجب أن تكون النتيجة بالعربية.
+        # Remove "عاجل" from the beginning if it exists
+        text_to_rewrite = text.strip()
+        if text_to_rewrite.startswith("عاجل"):
+            text_to_rewrite = text_to_rewrite[4:].strip()
+        if text_to_rewrite.startswith("|"):
+            text_to_rewrite = text_to_rewrite[1:].strip()
+        
+        prompt = f"""أعد صياغة النص الإخباري التالي بأسلوب {REWRITE_STYLE} واحترافي وموضوعي. يجب أن تكون النتيجة بالعربية. لا تكرر كلمة 'عاجل' في البداية.
 النص الأصلي:
-{text}
+{text_to_rewrite}
 
 النص المعاد صياغته:"""
         
