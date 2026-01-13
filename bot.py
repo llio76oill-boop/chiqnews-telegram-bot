@@ -4,6 +4,7 @@
 import logging
 import os
 import re
+import requests
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
@@ -22,6 +23,7 @@ TELEGRAM_PHONE = os.getenv('TELEGRAM_PHONE', '')
 SOURCE_CHANNELS = os.getenv('SOURCE_CHANNELS', 'AjaNews,llio76ioll,AlarabyTvBrk').split(',')
 DESTINATION_CHANNEL = os.getenv('DESTINATION_CHANNEL', '@AjeelNewsIq')
 SESSION_STRING = os.getenv('SESSION_STRING', '')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 
 # إنشاء العميل باستخدام StringSession لتجنب مشاكل قاعدة البيانات
 if SESSION_STRING:
@@ -39,12 +41,77 @@ def clean_text(text):
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-def rewrite_text(text):
+def rewrite_text_with_openai(text):
     """
-    إعادة صياغة النص باستخدام معالجة محلية متقدمة
+    إعادة صياغة النص باستخدام OpenAI API
+    الصياغة تكون بسيطة - تغيير طفيف فقط لتجنب الاستنساخ
     """
     try:
+        if not OPENAI_API_KEY:
+            logger.warning("⚠️ OpenAI API Key غير موجود، استخدام المعالجة المحلية")
+            return rewrite_text_locally(text)
+        
         # تنظيف النص
+        text = clean_text(text)
+        
+        # إنشاء الـ prompt للصياغة البسيطة
+        prompt = f"""أعد صياغة هذا الخبر بشكل بسيط جداً - غير الكلمات والتراكيب قليلاً فقط لتجنب الاستنساخ، لكن احتفظ بنفس المعنى والمعلومات:
+
+الخبر الأصلي:
+{text}
+
+المطلوب:
+- صياغة بسيطة وموجزة
+- تغيير طفيف في الكلمات والتراكيب
+- الحفاظ على نفس المعنى والمعلومات
+- بدون إضافة معلومات جديدة
+- بدون نصوص إضافية أو شروح
+
+الخبر المعاد صياغته:"""
+
+        # استدعاء OpenAI API
+        headers = {
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": "gpt-3.5-turbo",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            "temperature": 0.7,
+            "max_tokens": 500
+        }
+        
+        response = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            rewritten = result['choices'][0]['message']['content'].strip()
+            logger.info("✨ تمت إعادة الصياغة بنجاح عبر OpenAI!")
+            return rewritten
+        else:
+            logger.warning(f"⚠️ خطأ من OpenAI: {response.status_code} - {response.text}")
+            return rewrite_text_locally(text)
+    
+    except Exception as e:
+        logger.warning(f"⚠️ خطأ في استدعاء OpenAI: {e}")
+        return rewrite_text_locally(text)
+
+def rewrite_text_locally(text):
+    """
+    إعادة صياغة محلية بسيطة كبديل
+    """
+    try:
         text = clean_text(text)
         
         # تقسيم النص إلى جمل
@@ -129,8 +196,8 @@ async def process_message(event):
             return
         
         # إعادة صياغة النص
-        logger.info("✍️ جاري إعادة صياغة النص محلياً...")
-        rewritten_text = rewrite_text(text)
+        logger.info("✍️ جاري إعادة صياغة النص...")
+        rewritten_text = rewrite_text_with_openai(text)
         
         # استبدال أسماء المراسلين
         rewritten_text = replace_reporter_names(rewritten_text)
@@ -156,7 +223,7 @@ async def main():
         # تسجيل المستمعين
         logger.info(f"👂 البوت يستمع للرسائل من: {', '.join(SOURCE_CHANNELS)}")
         logger.info(f"📤 البوت سيرسل الرسائل إلى: {DESTINATION_CHANNEL}")
-        logger.info("🤖 استخدام معالجة نصية محلية متقدمة لإعادة الصياغة")
+        logger.info("🤖 استخدام OpenAI API لإعادة الصياغة البسيطة")
         logger.info("🚀 البوت جاهز للاستقبال...")
         
         # إضافة معالج الأحداث لكل قناة
