@@ -24,8 +24,9 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 REWRITE_STYLE = os.getenv("REWRITE_STYLE", "احترافي وموضوعي")
 FOOTER_TEXT = os.getenv("FOOTER_TEXT", "تابعنا على @AjeelNewsIq")
 
-# OpenAI API endpoint (Manus compatible)
-OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
+# Manus API endpoint
+MANUS_API_BASE = "https://api.manus.im"
+OPENAI_API_URL = MANUS_API_BASE + "/v1/chat/completions"
 
 # Initialize Telegram client
 if SESSION_STRING:
@@ -123,7 +124,7 @@ async def rewrite_text_with_ai(text: str) -> str:
 النص المعاد صياغته:"""
         
         headers = {
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "API_KEY": OPENAI_API_KEY,
             "Content-Type": "application/json"
         }
         
