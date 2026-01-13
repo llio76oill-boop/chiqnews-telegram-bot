@@ -25,6 +25,38 @@ class DeepSeekRewriter:
         if not self.api_key:
             logger.warning("⚠️ DeepSeek API Key غير محدد!")
     
+    def _remove_source_info(self, text: str) -> str:
+        """
+        إزالة بيانات المصدر من النص
+        """
+        source_keywords = [
+            'مصدر للحدث',
+            'مراسل الحدث',
+            'مراسل',
+            'مصدر',
+            'وكالة',
+            'تقرير',
+            'حسب',
+            'وفقاً لـ',
+            'بحسب',
+            'بناءً على',
+        ]
+        
+        lines = text.split('\n')
+        filtered_lines = []
+        
+        for line in lines:
+            should_skip = False
+            for keyword in source_keywords:
+                if keyword in line:
+                    should_skip = True
+                    break
+            
+            if not should_skip and line.strip():
+                filtered_lines.append(line)
+        
+        return '\n'.join(filtered_lines).strip()
+    
     def rewrite(self, text: str, style: str = 'professional') -> Tuple[str, bool]:
         """
         إعادة صياغة النص باستخدام DeepSeek API
@@ -41,8 +73,11 @@ class DeepSeekRewriter:
             return text, False
         
         try:
+            # إزالة بيانات المصدر أولاً
+            text_without_source = self._remove_source_info(text)
+            
             # إنشاء الـ prompt
-            prompt = self._create_prompt(text, style)
+            prompt = self._create_prompt(text_without_source, style)
             
             # إرسال الطلب إلى DeepSeek
             headers = {

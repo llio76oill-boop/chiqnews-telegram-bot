@@ -36,7 +36,7 @@ TELEGRAM_API_ID = int(os.getenv('TELEGRAM_API_ID', '0'))
 TELEGRAM_API_HASH = os.getenv('TELEGRAM_API_HASH', '')
 TELEGRAM_PHONE = os.getenv('TELEGRAM_PHONE', '')
 SESSION_STRING = os.getenv('SESSION_STRING', '')
-SOURCE_CHANNELS = [ch.strip() for ch in os.getenv('SOURCE_CHANNELS', 'AjaNews,llio76ioll,AlarabyTvBrk').split(',')]
+SOURCE_CHANNELS = [ch.strip() for ch in os.getenv('SOURCE_CHANNELS', 'AjaNews,llio76ioll,AlarabyTvBrk,alhadath_brk').split(',')]
 DESTINATION_CHANNEL = os.getenv('DESTINATION_CHANNEL', '@AjeelNewsIq')
 REWRITE_STYLE = os.getenv('REWRITE_STYLE', 'professional')
 DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', 'sk-3654875960794adfa355c1befcea1f27')  # قيمة افتراضية للاختبار
@@ -48,6 +48,7 @@ DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', 'sk-3654875960794adfa355c1befce
 # قائمة الأولويات (من الأعلى إلى الأقل)
 CHANNEL_PRIORITIES = {
     'AjaNews': 1,           # الأولوية الأولى (الأعلى)
+    'alhadath_brk': 2,      # الأولوية الثانية
     'AlarabyTvBrk': 2,      # الأولوية الثانية
     'llio76ioll': 3         # الأولوية الثالثة (الأقل)
 }
@@ -277,10 +278,9 @@ async def main():
         logger.info(f"✍️ نظام الصياغة المتقدمة: مفعل")
         
         # إضافة معالج الأحداث لكل قناة
-        for channel in SOURCE_CHANNELS:
-            @client.on(events.NewMessage(chats=channel))
-            async def handler(event):
-                await handle_new_message(event)
+        @client.on(events.NewMessage(chats=SOURCE_CHANNELS))
+        async def handler(event):
+            await handle_new_message(event)
         
         logger.info("👂 جاري الاستماع للرسائل...")
         logger.info("🟢 البوت جاهز للعمل!")
