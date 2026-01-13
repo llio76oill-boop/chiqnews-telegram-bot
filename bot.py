@@ -23,8 +23,14 @@ SESSION_STRING = os.getenv("SESSION_STRING", "")
 FOOTER_TEXT = os.getenv("FOOTER_TEXT", "")
 
 # Initialize Gemini
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-2.0-flash')
+model = None
+try:
+    if GEMINI_API_KEY:
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        print("✅ Gemini API initialized successfully")
+except Exception as e:
+    print(f"❌ Error initializing Gemini: {e}")
 
 # Configure logging
 logging.basicConfig(
@@ -101,6 +107,10 @@ def clean_text(text: str) -> str:
 async def rewrite_text_with_ai(text: str) -> str:
     """Rewrite text using Google Gemini"""
     try:
+        if not model:
+            logger.warning("⚠️ Gemini model not available")
+            return text
+        
         logger.info("✍️ جاري إعادة صياغة النص...")
         
         # Clean the text first
