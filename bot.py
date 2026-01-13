@@ -4,9 +4,9 @@ import asyncio
 import re
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-from openai import OpenAI
-from dotenv import load_dotenv
+import openai
 
+from dotenv import load_dotenv
 # Configure logging FIRST
 logging.basicConfig(
     level=logging.INFO,
@@ -24,16 +24,14 @@ TELEGRAM_PHONE = os.getenv("TELEGRAM_PHONE")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 SOURCE_CHANNELS = [ch.strip() for ch in os.getenv("SOURCE_CHANNELS", "").split(",")]
 DESTINATION_CHANNEL = os.getenv("DESTINATION_CHANNEL")
-REWRITE_STYLE = os.getenv("REWRITE_STYLE", "professional")
-SESSION_STRING = os.getenv("SESSION_STRING", "")
 FOOTER_TEXT = os.getenv("FOOTER_TEXT", "")
 
 # Initialize OpenAI client (using Manus API)
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+import openai
 if not OPENAI_API_KEY:
     logger.error("❌ OPENAI_API_KEY not found in environment variables!")
     exit(1)
-client_ai = OpenAI(api_key=OPENAI_API_KEY)
+openai.api_key = OPENAI_API_KEY
 
 
 # Track processed messages to avoid duplicates
@@ -120,7 +118,7 @@ async def rewrite_text_with_ai(text: str) -> str:
 
 النص المعاد صياغته:"""
         
-        response = client_ai.chat.completions.create(
+        response = openai.ChatCompletion.create(
             model="gpt-4.1-mini",
             messages=[
                 {"role": "system", "content": "أنت محرر أخبار احترافي متخصص في إعادة صياغة الأخبار بأسلوب احترافي وموضوعي."},
