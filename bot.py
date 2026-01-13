@@ -4,7 +4,7 @@ import asyncio
 import re
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-from openai import OpenAI
+import google.generativeai as genai
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -15,14 +15,15 @@ TELEGRAM_API_ID = int(os.getenv("TELEGRAM_API_ID"))
 TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH")
 TELEGRAM_PHONE = os.getenv("TELEGRAM_PHONE")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 SOURCE_CHANNELS = [ch.strip() for ch in os.getenv("SOURCE_CHANNELS", "").split(",")]
 DESTINATION_CHANNEL = os.getenv("DESTINATION_CHANNEL")
 REWRITE_STYLE = os.getenv("REWRITE_STYLE", "professional")
 SESSION_STRING = os.getenv("SESSION_STRING", "")
 
-# Initialize OpenAI client
-openai_client = OpenAI(api_key=OPENAI_API_KEY)
+# Initialize Gemini
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel('gemini-2.0-flash')
 
 # Configure logging
 logging.basicConfig(
@@ -79,7 +80,7 @@ def is_advertisement(text: str) -> bool:
     return False
 
 async def rewrite_text_with_ai(text: str) -> str:
-    """Rewrite text using OpenAI"""
+    """Rewrite text using Google Gemini"""
     try:
         logger.info("✍️ جاري إعادة صياغة النص...")
         
@@ -96,14 +97,8 @@ async def rewrite_text_with_ai(text: str) -> str:
 
 النص المعاد صياغته:"""
         
-        response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=1024,
-        )
-        
-        rewritten = response.choices[0].message.content.strip()
+        response = model.generate_content(prompt)
+        rewritten = response.text.strip()
         logger.info("✨ تمت إعادة الصياغة بنجاح!")
         return rewritten
     except Exception as e:
