@@ -39,6 +39,7 @@ SESSION_STRING = os.getenv('SESSION_STRING', '')
 SOURCE_CHANNELS = [ch.strip() for ch in os.getenv('SOURCE_CHANNELS', 'AjaNews,llio76ioll,AlarabyTvBrk').split(',')]
 DESTINATION_CHANNEL = os.getenv('DESTINATION_CHANNEL', '@AjeelNewsIq')
 REWRITE_STYLE = os.getenv('REWRITE_STYLE', 'professional')
+DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY', '')
 
 # ============================================================================
 # نظام الأولويات
@@ -62,6 +63,14 @@ def get_channel_priority(channel_name):
 filter_system = SmartFilter()
 rewriter = AdvancedRewriter()
 deepseek_rewriter = DeepSeekRewriter()  # نظام الصياغة عبر DeepSeek
+
+# تعيين المفتاح مباشرة إذا لم يتم قراؤته من البيئة
+if DEEPSEEK_API_KEY:
+    deepseek_rewriter.api_key = DEEPSEEK_API_KEY
+    logger.info(f"✅ تم تعيين DeepSeek API Key")
+else:
+    logger.warning("⚠️ DeepSeek API Key غير محدد!")
+
 stored_texts = []  # لتخزين النصوص المعالجة
 
 # إنشاء عميل Telegram باستخدام StringSession
