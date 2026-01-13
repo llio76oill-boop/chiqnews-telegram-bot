@@ -16,6 +16,7 @@ from telethon.errors import SessionPasswordNeededError
 from telethon.sessions import StringSession
 from filter_module import SmartFilter
 from rewrite_module import AdvancedRewriter
+from openai_rewrite_module import OpenAIRewriter
 
 # ============================================================================
 # إعداد السجلات
@@ -60,6 +61,7 @@ def get_channel_priority(channel_name):
 
 filter_system = SmartFilter()
 rewriter = AdvancedRewriter()
+openai_rewriter = OpenAIRewriter()  # نظام الصياغة عبر OpenAI
 stored_texts = []  # لتخزين النصوص المعالجة
 
 # إنشاء عميل Telegram باستخدام StringSession
@@ -113,7 +115,14 @@ def process_message(text: str) -> dict:
         
         # 2. إعادة الصياغة
         logger.info("✍️ جاري إعادة صياغة النص...")
-        rewritten = rewriter.rewrite(text, style=REWRITE_STYLE)
+        
+        # محاولة استخدام OpenAI API أولاً
+        rewritten, openai_success = openai_rewriter.rewrite(text, style=REWRITE_STYLE)
+        
+        # إذا فشل OpenAI، استخدم النظام المحلي
+        if not openai_success:
+            logger.info("⚠️ استخدام نظام الصياغة المحلي كـ fallback...")
+            rewritten = rewriter.rewrite(text, style=REWRITE_STYLE)
         
         # 3. حساب الإحصائيات
         rewrite_stats = rewriter.get_rewrite_stats(text, rewritten)
