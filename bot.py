@@ -6,6 +6,7 @@ import os
 import re
 from telethon import TelegramClient, events
 from telethon.errors import SessionPasswordNeededError
+from telethon.sessions import StringSession
 
 # إعداد السجل
 logging.basicConfig(
@@ -20,10 +21,15 @@ TELEGRAM_API_HASH = os.getenv('TELEGRAM_API_HASH', '')
 TELEGRAM_PHONE = os.getenv('TELEGRAM_PHONE', '')
 SOURCE_CHANNELS = os.getenv('SOURCE_CHANNELS', 'AjaNews,llio76ioll,AlarabyTvBrk').split(',')
 DESTINATION_CHANNEL = os.getenv('DESTINATION_CHANNEL', '@AjeelNewsIq')
-SESSION_STRING = os.getenv('SESSION_STRING', 'session')
+SESSION_STRING = os.getenv('SESSION_STRING', '')
 
-# إنشاء العميل
-client = TelegramClient(SESSION_STRING, TELEGRAM_API_ID, TELEGRAM_API_HASH)
+# إنشاء العميل باستخدام StringSession لتجنب مشاكل قاعدة البيانات
+if SESSION_STRING:
+    session = StringSession(SESSION_STRING)
+else:
+    session = StringSession()  # جلسة جديدة
+
+client = TelegramClient(session, TELEGRAM_API_ID, TELEGRAM_API_HASH)
 
 def clean_text(text):
     """تنظيف النص من الرموز الزائدة"""
