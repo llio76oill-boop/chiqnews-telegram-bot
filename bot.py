@@ -82,9 +82,33 @@ def is_advertisement(text: str) -> bool:
     
     return False
 
+def replace_reporter_names(text: str) -> str:
+    """Replace reporter names from other channels with 'مراسلنا'"""
+    # List of reporter names to replace
+    reporter_patterns = [
+        (r'مراسل\s+الجزيرة', 'مراسلنا'),
+        (r'مراسل\s+قناة\s+الجزيرة', 'مراسلنا'),
+        (r'مراسل\s+العربي', 'مراسلنا'),
+        (r'مراسل\s+قناة\s+العربي', 'مراسلنا'),
+        (r'مراسل\s+الاخبار', 'مراسلنا'),
+        (r'مراسل\s+قناة\s+الاخبار', 'مراسلنا'),
+        (r'مراسل\s+\w+', 'مراسلنا'),  # Any other reporter
+        (r'وفقا\s+ل(?:قناة)?\s+\w+', ''),  # Remove "وفقاً لـ"
+        (r'حسب\s+(?:قناة)?\s+\w+', ''),  # Remove "حسب"
+        (r'حسب\s+تقارير\s+\w+', ''),  # Remove "حسب تقارير"
+    ]
+    
+    for pattern, replacement in reporter_patterns:
+        text = re.sub(pattern, replacement, text)
+    
+    return text
+
 def clean_text(text: str) -> str:
     """Clean text by removing common prefixes"""
     text = text.strip()
+    
+    # Replace reporter names first
+    text = replace_reporter_names(text)
     
     # Remove "عاجل" and variations
     if text.startswith("عاجل"):
