@@ -5,7 +5,6 @@ import re
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 import openai
-
 from dotenv import load_dotenv
 # Configure logging FIRST
 logging.basicConfig(
@@ -25,9 +24,11 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 SOURCE_CHANNELS = [ch.strip() for ch in os.getenv("SOURCE_CHANNELS", "").split(",")]
 DESTINATION_CHANNEL = os.getenv("DESTINATION_CHANNEL")
 FOOTER_TEXT = os.getenv("FOOTER_TEXT", "")
+REWRITE_STYLE = os.getenv("REWRITE_STYLE", "professional")
+SESSION_STRING = os.getenv("SESSION_STRING", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Initialize OpenAI client (using Manus API)
-import openai
 if not OPENAI_API_KEY:
     logger.error("❌ OPENAI_API_KEY not found in environment variables!")
     exit(1)
