@@ -87,14 +87,14 @@ def rewrite_text_with_openai(text: str) -> str:
             "Content-Type": "application/json"
         }
         
-        payload = {
+         payload = {
             "model": "gpt-3.5-turbo",
             "messages": [
-                {"role": "system", "content": "أنت محرر أخبار محترف متخصص في إعادة صياغة الأخبار بشكل احترافي وأصلي وموضوعي"},
-                {"role": "user", "content": f"أعد صياغة هذا الخبر بشكل احترافي وأصلي:\n\n{text}"}
+                {"role": "system", "content": "أنت محرر أخبار محترف. أعد صياغة الأخبار بشكل موجز واحترافي فقط، بدون أي نصوص إضافية أو تعليقات. الصياغة يجب أن تكون مختصرة وتحتفظ بنفس طول الخبر الأصلي تقريباً."},
+                {"role": "user", "content": f"أعد صياغة هذا الخبر فقط بدون أي نصوص إضافية:\n\n{text}"}
             ],
             "temperature": 0.7,
-            "max_tokens": 500,
+            "max_tokens": 300,
             "top_p": 0.9
         }
         
