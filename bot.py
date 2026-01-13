@@ -22,10 +22,10 @@ SOURCE_CHANNELS = os.getenv("SOURCE_CHANNELS", "").split(",")
 DESTINATION_CHANNEL = os.getenv("DESTINATION_CHANNEL", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 REWRITE_STYLE = os.getenv("REWRITE_STYLE", "احترافي وموضوعي")
-FOOTER_TEXT = os.getenv("FOOTER_TEXT", "تابعنا على قناة الأحداث العاجلة للبقاء على اخر التحديثات بالأخبار")
+FOOTER_TEXT = os.getenv("FOOTER_TEXT", "تابعنا على @AjeelNewsIq")
 
 # OpenAI API endpoint (Manus compatible)
-OPENAI_API_URL = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1") + "/chat/completions"
+OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 
 # Initialize Telegram client
 if SESSION_STRING:
