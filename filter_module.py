@@ -49,14 +49,13 @@ class SmartFilter:
             'لا تفوت', 'لا تتأخر', 'سريع', 'فوري', 'فاجل'
         ]
         
-        # أنماط الروابط
+        # أنماط الروابط (تم تخفيف المعايير - فقط الروابط المباشرة)
         self.url_patterns = [
             r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+',
             r'www\.[a-zA-Z0-9-]+\.[a-zA-Z]{2,}',
             r'bit\.ly/\w+',
             r'tinyurl\.com/\w+',
-            r'@\w+',  # mentions
-            r'#\w+',  # hashtags
+            # تم إزالة: @\w+ و #\w+ للسماح بـ mentions و hashtags
         ]
         
         # كلمات مفتاحية للمحتوى الموثوق
@@ -85,21 +84,23 @@ class SmartFilter:
             if keyword in text_lower:
                 ad_count += 1
         
-        if ad_count >= 3:
+        if ad_count >= 5:  # تم رفع الحد من 3 إلى 5 - تخفيف معايير الإعلانات
             return True, "كلمات إعلانية متعددة"
         
-        # فحص الروابط
+        # فحص الروابط (فقط الروابط المباشرة، ليس mentions أو hashtags)
         for pattern in self.url_patterns:
             if re.search(pattern, text):
-                return True, "يحتوي على روابط"
+                return True, "يحتوي على روابط مباشرة"
         
-        # فحص الأسعار والأرقام المشبوهة
-        if re.search(r'\d+\s*(ريال|دولار|يورو|جنيه|دينار)', text_lower):
-            return True, "يحتوي على أسعار"
+        # فحص الأسعار والأرقام المشبوهة (تم تخفيف - فقط إذا كانت مع كلمات إعلانية)
+        # تم إزالة هذا الفحص لأنه قد يحجب أخبار اقتصادية مهمة
+        # if re.search(r'\d+\s*(ريال|دولار|يورو|جنيه|دينار)', text_lower):
+        #     return True, "يحتوي على أسعار"
         
-        # فحص الأرقام الهاتفية
-        if re.search(r'(\+\d{1,3})?[\s.-]?\d{3}[\s.-]?\d{3}[\s.-]?\d{4}', text):
-            return True, "يحتوي على أرقام هاتفية"
+        # فحص الأرقام الهاتفية (تم تخفيف - فقط إذا كانت متعددة)
+        phone_count = len(re.findall(r'(\+\d{1,3})?[\s.-]?\d{3}[\s.-]?\d{3}[\s.-]?\d{4}', text))
+        if phone_count >= 3:  # فقط إذا كانت 3 أرقام أو أكثر
+            return True, "يحتوي على أرقام هاتفية متعددة"
         
         return False, "نص موثوق"
     
@@ -112,10 +113,10 @@ class SmartFilter:
         """
         # فحص الطول
         words = text.split()
-        if len(words) < 10:
+        if len(words) < 5:  # تم تخفيف من 10 إلى 5
             return True, "نص قصير جداً"
         
-        if len(words) > 500:
+        if len(words) > 1000:  # تم تخفيف من 500 إلى 1000
             return True, "نص طويل جداً"
         
         # فحص الأحرف الخاصة الزائدة
@@ -155,7 +156,7 @@ class SmartFilter:
             # حساب التشابه
             similarity = self.calculate_similarity(text_lower, stored_lower)
             
-            if similarity > 0.8:
+            if similarity > 0.95:  # تم رفع الحد من 0.8 إلى 0.95 - السماح برسائل متشابهة قليلاً
                 return True, f"نص مكرر (تشابه: {similarity:.0%})"
         
         return False, "نص جديد"
