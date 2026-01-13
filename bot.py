@@ -1,13 +1,11 @@
 import os
 import logging
 import asyncio
-import aiohttp
 import openai
 import re
-from flask import Flask, request
-from threading import Thread
+from telegram import Bot
+from telegram.error import TelegramError
 from dotenv import load_dotenv
-from datetime import datetime
 
 # Load environment variables
 load_dotenv()
@@ -18,13 +16,12 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 SOURCE_CHANNELS = [ch.strip() for ch in os.getenv("SOURCE_CHANNELS", "").split(",")]
 DESTINATION_CHANNEL = os.getenv("DESTINATION_CHANNEL")
 REWRITE_STYLE = os.getenv("REWRITE_STYLE", "professional")
-PORT = int(os.getenv("PORT", 5000))
 
 # Initialize OpenAI
 openai.api_key = OPENAI_API_KEY
 
-# Initialize Flask
-app = Flask(__name__)
+# Initialize Telegram Bot
+bot = Bot(token=BOT_TOKEN)
 
 # Configure logging
 logging.basicConfig(
@@ -33,11 +30,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Telegram API URLs
-TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
-TELEGRAM_SEND_MESSAGE_URL = f"{TELEGRAM_API_URL}/sendMessage"
-TELEGRAM_SET_WEBHOOK_URL = f"{TELEGRAM_API_URL}/setWebhook"
-TELEGRAM_GET_WEBHOOK_INFO_URL = f"{TELEGRAM_API_URL}/getWebhookInfo"
+# Track processed messages to avoid duplicates
+processed_messages = set()
 
 def is_advertisement(text: str) -> bool:
     """Check if text is advertisement or unwanted content"""
@@ -111,44 +105,46 @@ async def rewrite_text_with_ai(text: str) -> str:
 async def send_message_to_channel(text: str, channel: str):
     """Send message to Telegram channel"""
     try:
-        payload = {
-            "chat_id": channel,
-            "text": text,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True
-        }
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.post(TELEGRAM_SEND_MESSAGE_URL, json=payload) as response:
-                if response.status == 200:
-                    logger.info(f"✅ تم الإرسال بنجاح إلى {channel}!")
-                    return True
-                else:
-                    error_text = await response.text()
-                    logger.error(f"❌ فشل الإرسال: {error_text}")
-                    return False
+        await bot.send_message(
+            chat_id=channel,
+            text=text,
+            parse_mode="HTML",
+            disable_web_page_preview=True
+        )
+        logger.info(f"✅ تم الإرسال بنجاح إلى {channel}!")
+        return True
     except Exception as e:
         logger.error(f"❌ خطأ في الإرسال: {e}")
         return False
 
-def process_update_async(update: dict):
-    """Process update in a separate thread"""
+async def process_update(update):
+    """Process a single update"""
     try:
-        if "channel_post" not in update:
+        # Check if it's a channel post
+        if not update.channel_post:
             return
         
-        message = update["channel_post"]
-        chat = message.get("chat", {})
-        chat_username = chat.get("username", "").strip().lower()
-        message_id = message.get("message_id")
-        text = message.get("text", "").strip()
+        message = update.channel_post
+        chat = message.chat
+        chat_username = chat.username.strip().lower() if chat.username else ""
+        message_id = message.message_id
+        text = message.text or ""
+        
+        # Create unique message identifier
+        msg_key = f"{chat_username}_{message_id}"
+        
+        # Skip if already processed
+        if msg_key in processed_messages:
+            return
+        
+        processed_messages.add(msg_key)
         
         # Skip if no text
         if not text:
             logger.info("📄 رسالة بدون نص، سيتم تجاهلها.")
             return
         
-        logger.info(f"📩 رسالة جديدة من @{chat_username}")
+        logger.info(f"📩 رسالة جديدة من @{chat_username}: {text[:50]}...")
         
         # Check if from source channels
         is_from_source = False
@@ -167,48 +163,46 @@ def process_update_async(update: dict):
             return
         
         # Rewrite text
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        rewritten_text = loop.run_until_complete(rewrite_text_with_ai(text))
+        rewritten_text = await rewrite_text_with_ai(text)
         
         # Build final message with custom format
-        # Add "عاجل" in red at the beginning
         final_text = f"<b><span style='color: red;'>🔴 عاجل</span></b>\n\n{rewritten_text}\n\n<b>تابعنا لتكن أول بأول تعلم ما حولك</b>\n@AjeelNewsIq"
         
         # Send to destination
-        loop.run_until_complete(send_message_to_channel(final_text, DESTINATION_CHANNEL))
-        
-        loop.close()
+        await send_message_to_channel(final_text, DESTINATION_CHANNEL)
         
     except Exception as e:
         logger.error(f"❌ خطأ في معالجة التحديث: {e}")
 
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    """Webhook endpoint for Telegram updates"""
-    try:
-        update = request.get_json()
-        
-        # Process update in background thread
-        thread = Thread(target=process_update_async, args=(update,))
-        thread.daemon = True
-        thread.start()
-        
-        return {"ok": True}, 200
-    except Exception as e:
-        logger.error(f"❌ خطأ في معالجة الـ webhook: {e}")
-        return {"ok": False}, 500
-
-@app.route("/health", methods=["GET"])
-def health():
-    """Health check endpoint"""
-    return {"status": "ok"}, 200
-
-if __name__ == "__main__":
+async def main():
+    """Main function - start polling for updates"""
     logger.info("▶️ جاري تشغيل البوت...")
     logger.info(f"👂 البوت يستمع للرسائل من: {', '.join(SOURCE_CHANNELS)}")
     logger.info(f"📤 البوت سيرسل الرسائل إلى: {DESTINATION_CHANNEL}")
     
-    # Run Flask app
-    app.run(host="0.0.0.0", port=PORT, debug=False)
+    offset = 0
+    
+    while True:
+        try:
+            # Get updates from Telegram
+            updates = await bot.get_updates(offset=offset, timeout=30)
+            
+            if updates:
+                logger.info(f"📨 استقبال {len(updates)} تحديث(ات)")
+                
+                for update in updates:
+                    await process_update(update)
+                    offset = update.update_id + 1
+            
+            # Keep the connection alive
+            await asyncio.sleep(1)
+            
+        except TelegramError as e:
+            logger.error(f"❌ خطأ Telegram: {e}")
+            await asyncio.sleep(5)
+        except Exception as e:
+            logger.error(f"❌ خطأ غير متوقع: {e}")
+            await asyncio.sleep(5)
+
+if __name__ == "__main__":
+    asyncio.run(main())
