@@ -170,14 +170,13 @@ async def main():
     """Main function - connect and listen for messages"""
     
     # Create Telethon client
-    if SESSION_STRING:
-        # Use existing session
-        client = TelegramClient(StringSession(SESSION_STRING), TELEGRAM_API_ID, TELEGRAM_API_HASH)
-        logger.info("📱 استخدام جلسة موجودة...")
-    else:
-        # Create new session
-        client = TelegramClient('session_name', TELEGRAM_API_ID, TELEGRAM_API_HASH)
-        logger.info("📱 إنشاء جلسة جديدة...")
+    if not SESSION_STRING:
+        logger.error("❌ SESSION_STRING غير موجود! يجب تعيين SESSION_STRING في متغيرات البيئة!")
+        return
+    
+    # Use existing session
+    client = TelegramClient(StringSession(SESSION_STRING), TELEGRAM_API_ID, TELEGRAM_API_HASH)
+    logger.info("📱 استخدام جلسة موجودة...")
     
     async with client:
         # Connect and authenticate
