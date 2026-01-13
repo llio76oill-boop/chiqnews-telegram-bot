@@ -24,10 +24,6 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 REWRITE_STYLE = os.getenv("REWRITE_STYLE", "احترافي وموضوعي")
 FOOTER_TEXT = os.getenv("FOOTER_TEXT", "تابعنا على @AjeelNewsIq")
 
-# Manus API endpoint
-MANUS_API_BASE = "https://api.manus.im"
-OPENAI_API_URL = MANUS_API_BASE + "/v1/chat/completions"
-
 # Initialize Telegram client
 if SESSION_STRING:
     client = TelegramClient(StringSession(SESSION_STRING), TELEGRAM_API_ID, TELEGRAM_API_HASH)
@@ -100,8 +96,11 @@ def clean_text(text: str) -> str:
     
     return text
 
-async def rewrite_text_with_ai(text: str) -> str:
-    """Rewrite text using OpenAI API via requests library"""
+def enhance_text_with_ai(text: str) -> str:
+    """
+    Enhance and rewrite text using multiple AI API options
+    Tries multiple endpoints with fallback strategy
+    """
     try:
         logger.info("✍️ جاري إعادة صياغة النص...")
         
@@ -116,51 +115,91 @@ async def rewrite_text_with_ai(text: str) -> str:
             logger.error("❌ OPENAI_API_KEY غير موجود")
             return text_to_rewrite
         
-        prompt = f"""أعد صياغة النص الإخباري التالي بأسلوب {REWRITE_STYLE} واحترافي وموضوعي وشامل. يجب أن تكون النتيجة بالعربية وطويلة وتفصيلية.
+        prompt = f"""أعد صياغة النص الإخباري التالي بأسلوب {REWRITE_STYLE} واحترافي وموضوعي وشامل. يجب أن تكون النتيجة بالعربية وطويلة وتفصيلية وأصلية.
 
 النص الأصلي:
 {text_to_rewrite}
 
 النص المعاد صياغته:"""
         
-        headers = {
-            "API_KEY": OPENAI_API_KEY,
-            "Content-Type": "application/json"
-        }
+        # Try multiple endpoints
+        endpoints = [
+            {
+                "url": "https://api.openai.com/v1/chat/completions",
+                "headers": {
+                    "Authorization": f"Bearer {OPENAI_API_KEY}",
+                    "Content-Type": "application/json"
+                },
+                "name": "OpenAI Official"
+            },
+            {
+                "url": "https://api.manus.ai/v1/chat/completions",
+                "headers": {
+                    "API_KEY": OPENAI_API_KEY,
+                    "Content-Type": "application/json"
+                },
+                "name": "Manus AI (.ai)"
+            },
+            {
+                "url": "https://api.manus.im/v1/chat/completions",
+                "headers": {
+                    "API_KEY": OPENAI_API_KEY,
+                    "Content-Type": "application/json"
+                },
+                "name": "Manus AI (.im)"
+            },
+        ]
         
         payload = {
             "model": "gpt-4.1-mini",
             "messages": [
-                {"role": "system", "content": "أنت محرر أخبار محترف"},
+                {"role": "system", "content": "أنت محرر أخبار محترف متخصص في إعادة صياغة الأخبار بشكل احترافي وأصلي"},
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.7,
             "max_tokens": 1000
         }
         
-        response = requests.post(OPENAI_API_URL, json=payload, headers=headers, timeout=30)
-        response.raise_for_status()
+        # Try each endpoint
+        for endpoint in endpoints:
+            try:
+                logger.info(f"🔄 محاولة الاتصال بـ {endpoint['name']}...")
+                response = requests.post(
+                    endpoint["url"],
+                    json=payload,
+                    headers=endpoint["headers"],
+                    timeout=10
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    
+                    if "choices" in result and len(result["choices"]) > 0:
+                        rewritten = result["choices"][0]["message"]["content"].strip()
+                        
+                        if rewritten:
+                            logger.info(f"✨ تمت إعادة الصياغة بنجاح عبر {endpoint['name']}!")
+                            return rewritten
+                        else:
+                            logger.warning(f"⚠️ الرد من {endpoint['name']} فارغ")
+                    else:
+                        logger.warning(f"⚠️ رد غير متوقع من {endpoint['name']}: {result}")
+                else:
+                    logger.warning(f"⚠️ {endpoint['name']} أرجع الكود {response.status_code}")
+                    
+            except requests.exceptions.Timeout:
+                logger.warning(f"⏱️ انتهت مهلة {endpoint['name']}")
+            except requests.exceptions.ConnectionError:
+                logger.warning(f"🔌 فشل الاتصال بـ {endpoint['name']}")
+            except Exception as e:
+                logger.warning(f"⚠️ خطأ في {endpoint['name']}: {e}")
         
-        result = response.json()
-        
-        if "choices" in result and len(result["choices"]) > 0:
-            rewritten = result["choices"][0]["message"]["content"].strip()
+        # If all endpoints fail, return the cleaned text
+        logger.warning("⚠️ فشلت جميع محاولات الاتصال بـ API، سيتم إرسال النص المنظف")
+        return text_to_rewrite
             
-            if rewritten:
-                logger.info("✨ تمت إعادة الصياغة بنجاح!")
-                return rewritten
-            else:
-                logger.warning("⚠️ الرد من OpenAI فارغ")
-                return text_to_rewrite
-        else:
-            logger.error(f"❌ رد غير متوقع من OpenAI: {result}")
-            return text_to_rewrite
-            
-    except requests.exceptions.RequestException as e:
-        logger.error(f"❌ خطأ في الاتصال بـ OpenAI: {e}")
-        return text
     except Exception as e:
-        logger.error(f"❌ فشلت إعادة الصياغة: {e}")
+        logger.error(f"❌ خطأ في إعادة الصياغة: {e}")
         return text
 
 async def send_to_destination(text: str):
@@ -192,7 +231,7 @@ async def handle_new_message(event):
             return
         
         # Rewrite the text
-        rewritten_text = await rewrite_text_with_ai(text)
+        rewritten_text = enhance_text_with_ai(text)
         
         # Send to destination
         await send_to_destination(rewritten_text)
@@ -224,7 +263,7 @@ async def main():
         
         logger.info(f"👂 البوت يستمع للرسائل من: {', '.join(source_channels_clean)}")
         logger.info(f"📤 البوت سيرسل الرسائل إلى: {DESTINATION_CHANNEL}")
-        logger.info(f"🤖 استخدام OpenAI API (Manus) لإعادة الصياغة")
+        logger.info(f"🤖 استخدام AI API (مع خيارات متعددة) لإعادة الصياغة")
         logger.info("🚀 البوت جاهز للاستقبال...")
         
         await client.run_until_disconnected()
