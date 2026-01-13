@@ -182,13 +182,15 @@ async def main():
     async with client:
         # Connect and authenticate
         try:
-            if SESSION_STRING:
-                logger.info("✅ استخدام SESSION_STRING الموجود...")
-                await client.connect()
-            else:
-                logger.error("❌ SESSION_STRING غير موجود!")
-                logger.info("🔐 جاري تسجيل الدخول...")
-                await client.start(phone=TELEGRAM_PHONE, code_callback=None)
+            logger.info("✅ جاري الاتصال بـ Telegram...")
+            await client.connect()
+            
+            # Check if we're authorized
+            if not await client.is_user_authorized():
+                logger.error("❌ لم يتم التفويض! SESSION_STRING غير صحيح!")
+                return
+            
+            logger.info("✅ تم التفويض بنجاح!")
         except Exception as e:
             logger.error(f"❌ خطأ في الاتصال: {e}")
             return
