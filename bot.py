@@ -2,9 +2,9 @@ import os
 import re
 import logging
 import asyncio
+import requests
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-from openai import OpenAI
 
 # Configure logging
 logging.basicConfig(
@@ -24,12 +24,8 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 REWRITE_STYLE = os.getenv("REWRITE_STYLE", "احترافي وموضوعي")
 FOOTER_TEXT = os.getenv("FOOTER_TEXT", "تابعنا على قناة الأحداث العاجلة للبقاء على اخر التحديثات بالأخبار")
 
-# Initialize OpenAI client
-try:
-    openai_client = OpenAI(api_key=OPENAI_API_KEY)
-except Exception as e:
-    logger.error(f"❌ فشل إنشاء عميل OpenAI: {e}")
-    openai_client = None
+# OpenAI API endpoint
+OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 
 # Initialize Telegram client
 if SESSION_STRING:
@@ -104,7 +100,7 @@ def clean_text(text: str) -> str:
     return text
 
 async def rewrite_text_with_ai(text: str) -> str:
-    """Rewrite text using OpenAI (Manus API)"""
+    """Rewrite text using OpenAI API via requests library"""
     try:
         logger.info("✍️ جاري إعادة صياغة النص...")
         
@@ -115,8 +111,8 @@ async def rewrite_text_with_ai(text: str) -> str:
             logger.warning("⚠️ النص فارغ بعد التنظيف")
             return text
         
-        if not openai_client:
-            logger.error("❌ عميل OpenAI غير متوفر")
+        if not OPENAI_API_KEY:
+            logger.error("❌ OPENAI_API_KEY غير موجود")
             return text_to_rewrite
         
         prompt = f"""أعد صياغة النص الإخباري التالي بأسلوب {REWRITE_STYLE} واحترافي وموضوعي وشامل. يجب أن تكون النتيجة بالعربية وطويلة وتفصيلية.
@@ -126,25 +122,42 @@ async def rewrite_text_with_ai(text: str) -> str:
 
 النص المعاد صياغته:"""
         
-        response = openai_client.chat.completions.create(
-            model="gpt-4.1-mini",
-            messages=[
+        headers = {
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": "gpt-4.1-mini",
+            "messages": [
                 {"role": "system", "content": "أنت محرر أخبار محترف"},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.7,
-            max_tokens=1000
-        )
+            "temperature": 0.7,
+            "max_tokens": 1000
+        }
         
-        rewritten = response.choices[0].message.content.strip()
+        response = requests.post(OPENAI_API_URL, json=payload, headers=headers, timeout=30)
+        response.raise_for_status()
         
-        if rewritten:
-            logger.info("✨ تمت إعادة الصياغة بنجاح!")
-            return rewritten
+        result = response.json()
+        
+        if "choices" in result and len(result["choices"]) > 0:
+            rewritten = result["choices"][0]["message"]["content"].strip()
+            
+            if rewritten:
+                logger.info("✨ تمت إعادة الصياغة بنجاح!")
+                return rewritten
+            else:
+                logger.warning("⚠️ الرد من OpenAI فارغ")
+                return text_to_rewrite
         else:
-            logger.warning("⚠️ الرد من OpenAI فارغ")
+            logger.error(f"❌ رد غير متوقع من OpenAI: {result}")
             return text_to_rewrite
             
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ خطأ في الاتصال بـ OpenAI: {e}")
+        return text
     except Exception as e:
         logger.error(f"❌ فشلت إعادة الصياغة: {e}")
         return text
