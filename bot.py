@@ -1,73 +1,52 @@
 import os
+import re
 import logging
 import asyncio
-import re
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-import openai
-from dotenv import load_dotenv
-# Configure logging FIRST
+from openai import OpenAI
+
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - [%(levelname)s] - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-load_dotenv()
-
-# Configuration
-TELEGRAM_API_ID = int(os.getenv("TELEGRAM_API_ID"))
-TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH")
-TELEGRAM_PHONE = os.getenv("TELEGRAM_PHONE")
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-SOURCE_CHANNELS = [ch.strip() for ch in os.getenv("SOURCE_CHANNELS", "").split(",")]
-DESTINATION_CHANNEL = os.getenv("DESTINATION_CHANNEL")
-FOOTER_TEXT = os.getenv("FOOTER_TEXT", "")
-REWRITE_STYLE = os.getenv("REWRITE_STYLE", "professional")
+# Get environment variables
+TELEGRAM_API_ID = int(os.getenv("TELEGRAM_API_ID", "0"))
+TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH", "")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 SESSION_STRING = os.getenv("SESSION_STRING", "")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+SOURCE_CHANNELS = os.getenv("SOURCE_CHANNELS", "").split(",")
+DESTINATION_CHANNEL = os.getenv("DESTINATION_CHANNEL", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+REWRITE_STYLE = os.getenv("REWRITE_STYLE", "احترافي وموضوعي")
+FOOTER_TEXT = os.getenv("FOOTER_TEXT", "تابعنا على قناة الأحداث العاجلة للبقاء على اخر التحديثات بالأخبار")
 
-# Initialize OpenAI client (using Manus API)
-if not OPENAI_API_KEY:
-    logger.error("❌ OPENAI_API_KEY not found in environment variables!")
-    exit(1)
-openai.api_key = OPENAI_API_KEY
+# Initialize OpenAI client
+try:
+    openai_client = OpenAI(api_key=OPENAI_API_KEY)
+except Exception as e:
+    logger.error(f"❌ فشل إنشاء عميل OpenAI: {e}")
+    openai_client = None
 
+# Initialize Telegram client
+if SESSION_STRING:
+    client = TelegramClient(StringSession(SESSION_STRING), TELEGRAM_API_ID, TELEGRAM_API_HASH)
+else:
+    logger.error("❌ SESSION_STRING غير موجود! يجب تعيين SESSION_STRING في متغيرات البيئة!")
+    client = None
 
-# Track processed messages to avoid duplicates
-processed_messages = set()
-
-def is_advertisement(text: str) -> bool:
-    """Check if text is advertisement or unwanted content"""
-    if not text:
-        return False
-    
-    ad_keywords = [
-        "اشترك",
-        "subscribe",
-        "تحميل",
-        "download",
-        "رابط",
-        "link",
-        "كود",
-        "code",
-        "حساب",
-        "account",
-        "دخول",
-        "login",
-        "تفعيل",
-        "activate",
-        "جرب مجاني",
-        "free trial",
-        "مجاني",
-        "free",
+def is_spam(text: str) -> bool:
+    """Check if text is spam or advertisement"""
+    spam_keywords = [
+        "اشترك", "تابع", "لايك", "شير", "كومنت", "اضغط", "رابط",
+        "موقع", "تطبيق", "تحميل", "إعلان", "عرض", "خصم", "سعر"
     ]
     
     text_lower = text.lower()
-    
-    # Check for advertisement keywords
-    for keyword in ad_keywords:
+    for keyword in spam_keywords:
         if keyword in text_lower:
             return True
     
@@ -136,22 +115,21 @@ async def rewrite_text_with_ai(text: str) -> str:
             logger.warning("⚠️ النص فارغ بعد التنظيف")
             return text
         
+        if not openai_client:
+            logger.error("❌ عميل OpenAI غير متوفر")
+            return text_to_rewrite
+        
         prompt = f"""أعد صياغة النص الإخباري التالي بأسلوب {REWRITE_STYLE} واحترافي وموضوعي وشامل. يجب أن تكون النتيجة بالعربية وطويلة وتفصيلية.
-
-تعليمات مهمة:
-1. استبدل أي إشارة إلى "مراسل الجزيرة" أو "مراسل قناة العربي" أو "مراسل الاخبار" أو أي مراسل من قنوات أخرى بـ "مراسلنا"
-2. احذف أي إشارة إلى مصادر أخرى مثل "وفقاً لـ" أو "حسب" عند الإشارة إلى قنوات أخرى
-3. اجعل الخبر يبدو كأنه من مصدرنا الخاص
 
 النص الأصلي:
 {text_to_rewrite}
 
 النص المعاد صياغته:"""
         
-        response = openai.ChatCompletion.create(
+        response = openai_client.chat.completions.create(
             model="gpt-4.1-mini",
             messages=[
-                {"role": "system", "content": "أنت محرر أخبار احترافي متخصص في إعادة صياغة الأخبار بأسلوب احترافي وموضوعي."},
+                {"role": "system", "content": "أنت محرر أخبار محترف"},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.7,
@@ -171,101 +149,76 @@ async def rewrite_text_with_ai(text: str) -> str:
         logger.error(f"❌ فشلت إعادة الصياغة: {e}")
         return text
 
-async def send_message_to_channel(client, text: str, channel: str):
-    """Send message to Telegram channel"""
+async def send_to_destination(text: str):
+    """Send the rewritten text to the destination channel"""
     try:
-        # Remove @ if present
-        channel_name = channel.lstrip('@')
+        # Add red circle emoji and footer
+        final_text = f"🔴 {text}\n\n{FOOTER_TEXT}"
         
-        # Build final message with red emoji and footer
-        final_text = f"🔴 {text}"
+        await client.send_message(DESTINATION_CHANNEL, final_text)
+        logger.info(f"✅ تم الإرسال بنجاح إلى {DESTINATION_CHANNEL}!")
         
-        if FOOTER_TEXT:
-            final_text += f"\n\n{FOOTER_TEXT}"
-        
-        await client.send_message(
-            channel_name,
-            final_text,
-            parse_mode='html',
-            link_preview=False
-        )
-        logger.info(f"✅ تم الإرسال بنجاح إلى {channel}!")
-        return True
     except Exception as e:
-        logger.error(f"❌ خطأ في الإرسال: {e}")
-        return False
+        logger.error(f"❌ فشل الإرسال: {e}")
 
-async def main():
-    """Main function - connect and listen for messages"""
-    
-    # Create Telethon client
-    logger.info(f"DEBUG: SESSION_STRING length = {len(SESSION_STRING) if SESSION_STRING else 0}")
-    if not SESSION_STRING or SESSION_STRING.strip() == "":
-        logger.error("❌ SESSION_STRING غير موجود! يجب تعيين SESSION_STRING في متغيرات البيئة!")
-        logger.error(f"DEBUG: SESSION_STRING value = '{SESSION_STRING}'")
-        return
-    
-    # Use existing session
-    client = TelegramClient(StringSession(SESSION_STRING), TELEGRAM_API_ID, TELEGRAM_API_HASH)
-    logger.info("📱 استخدام جلسة موجودة...")
-    
-    async with client:
-        # Connect and authenticate
-        try:
-            logger.info("✅ جاري الاتصال بـ Telegram...")
-            await client.connect()
-            
-            # Check if we're authorized
-            if not await client.is_user_authorized():
-                logger.error("❌ لم يتم التفويض! SESSION_STRING غير صحيح!")
-                return
-            
-            logger.info("✅ تم التفويض بنجاح!")
-        except Exception as e:
-            logger.error(f"❌ خطأ في الاتصال: {e}")
+@client.on(events.NewMessage(chats=SOURCE_CHANNELS))
+async def handle_new_message(event):
+    """Handle new messages from source channels"""
+    try:
+        text = event.message.text
+        
+        if not text:
             return
         
-        logger.info(f"👂 البوت يستمع للرسائل من: {', '.join(SOURCE_CHANNELS)}")
+        logger.info(f"📨 رسالة جديدة من {event.chat_id}: {text[:100]}...")
+        
+        # Check if it's spam
+        if is_spam(text):
+            logger.info("🚫 تم تجاهل الرسالة (إعلان أو محتوى غير مرغوب)")
+            return
+        
+        # Rewrite the text
+        rewritten_text = await rewrite_text_with_ai(text)
+        
+        # Send to destination
+        await send_to_destination(rewritten_text)
+        
+    except Exception as e:
+        logger.error(f"❌ خطأ في معالجة الرسالة: {e}")
+
+async def main():
+    """Main function"""
+    try:
+        if not client:
+            logger.error("❌ عميل Telegram غير متوفر")
+            return
+        
+        logger.info("📱 استخدام جلسة موجودة...")
+        
+        await client.connect()
+        
+        logger.info("✅ جاري الاتصال بـ Telegram...")
+        
+        if await client.is_user_authorized():
+            logger.info("✅ تم التفويض بنجاح!")
+        else:
+            logger.error("❌ فشل التفويض")
+            return
+        
+        # Clean up source channels list
+        source_channels_clean = [ch.strip() for ch in SOURCE_CHANNELS if ch.strip()]
+        
+        logger.info(f"👂 البوت يستمع للرسائل من: {', '.join(source_channels_clean)}")
         logger.info(f"📤 البوت سيرسل الرسائل إلى: {DESTINATION_CHANNEL}")
-        logger.info("🤖 استخدام OpenAI API (Manus) لإعادة الصياغة")
-        
-        @client.on(events.NewMessage(chats=SOURCE_CHANNELS))
-        async def handle_new_message(event):
-            """Handle new messages from source channels"""
-            try:
-                message_text = event.message.text
-                
-                # Skip if no text
-                if not message_text:
-                    return
-                
-                message_id = event.message.id
-                
-                # Skip if already processed
-                if message_id in processed_messages:
-                    return
-                
-                processed_messages.add(message_id)
-                
-                logger.info(f"📨 رسالة جديدة من {event.chat_id}: {message_text[:100]}...")
-                
-                # Skip if it's an advertisement
-                if is_advertisement(message_text):
-                    logger.info(f"🚫 تم تجاهل إعلان: {message_text[:50]}...")
-                    return
-                
-                # Rewrite the message
-                rewritten_message = await rewrite_text_with_ai(message_text)
-                
-                # Send to destination channel
-                await send_message_to_channel(client, rewritten_message, DESTINATION_CHANNEL)
-                
-            except Exception as e:
-                logger.error(f"❌ خطأ في معالجة الرسالة: {e}")
-        
-        # Keep the client running
+        logger.info(f"🤖 استخدام OpenAI API (Manus) لإعادة الصياغة")
         logger.info("🚀 البوت جاهز للاستقبال...")
+        
         await client.run_until_disconnected()
+        
+    except Exception as e:
+        logger.error(f"❌ خطأ في البوت: {e}")
+    finally:
+        await client.disconnect()
 
 if __name__ == "__main__":
     asyncio.run(main())
