@@ -1,113 +1,214 @@
-'_# bot.py - Simple Telegram News Forwarder_
 import os
+import logging
 import asyncio
-from telethon import TelegramClient, events
-import telegram
+import aiohttp
 import openai
+import re
+from flask import Flask, request
+from threading import Thread
 from dotenv import load_dotenv
+from datetime import datetime
 
-# ------------------ 1. الإعدادات والتحميل ------------------ #
-print("⏳ جاري تحميل الإعدادات...")
+# Load environment variables
 load_dotenv()
 
-# --- تحميل متغيرات البيئة ---
-API_ID = os.getenv("TELEGRAM_API_ID")
-API_HASH = os.getenv("TELEGRAM_API_HASH")
-PHONE = os.getenv("TELEGRAM_PHONE")
+# Configuration
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-SOURCE_CHANNELS_STR = os.getenv("SOURCE_CHANNELS")
+SOURCE_CHANNELS = [ch.strip() for ch in os.getenv("SOURCE_CHANNELS", "").split(",")]
 DESTINATION_CHANNEL = os.getenv("DESTINATION_CHANNEL")
 REWRITE_STYLE = os.getenv("REWRITE_STYLE", "professional")
+PORT = int(os.getenv("PORT", 5000))
 
-# --- التحقق من المتغيرات الأساسية ---
-if not all([API_ID, API_HASH, PHONE, BOT_TOKEN, OPENAI_API_KEY, SOURCE_CHANNELS_STR, DESTINATION_CHANNEL]):
-    print("❌ خطأ: يرجى ملء جميع المتغيرات في ملف .env")
-    exit()
-
-# --- تحويل القنوات إلى قائمة ---
-SOURCE_CHANNELS = [channel.strip() for channel in SOURCE_CHANNELS_STR.split(',')]
-
-# --- تهيئة المكتبات ---
-print("🔌 جاري تهيئة المكتبات...")
-client = TelegramClient("bot_session", int(API_ID), API_HASH)
-bot = telegram.Bot(token=BOT_TOKEN)
+# Initialize OpenAI
 openai.api_key = OPENAI_API_KEY
 
-print("✅ الإعدادات جاهزة.")
+# Initialize Flask
+app = Flask(__name__)
 
-# ------------------ 2. دوال الذكاء الاصطناعي ------------------ #
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - [%(levelname)s] - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Telegram API URLs
+TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
+TELEGRAM_SEND_MESSAGE_URL = f"{TELEGRAM_API_URL}/sendMessage"
+TELEGRAM_SET_WEBHOOK_URL = f"{TELEGRAM_API_URL}/setWebhook"
+TELEGRAM_GET_WEBHOOK_INFO_URL = f"{TELEGRAM_API_URL}/getWebhookInfo"
+
+def is_advertisement(text: str) -> bool:
+    """Check if text is advertisement or unwanted content"""
+    if not text:
+        return False
+    
+    ad_keywords = [
+        "اشترك",
+        "subscribe",
+        "تحميل",
+        "download",
+        "رابط",
+        "link",
+        "كود",
+        "code",
+        "حساب",
+        "account",
+        "دخول",
+        "login",
+        "تفعيل",
+        "activate",
+        "جرب مجاني",
+        "free trial",
+        "مجاني",
+        "free",
+    ]
+    
+    text_lower = text.lower()
+    
+    # Check for advertisement keywords
+    for keyword in ad_keywords:
+        if keyword in text_lower:
+            return True
+    
+    # Check for URLs
+    url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+    if re.search(url_pattern, text):
+        return True
+    
+    # Check for telegram links and mentions
+    if re.search(r'@\w+|t\.me/\w+', text):
+        return True
+    
+    return False
 
 async def rewrite_text_with_ai(text: str) -> str:
-    """إعادة صياغة النص باستخدام OpenAI"""
-    print(f"✍️ جاري إعادة صياغة النص: {text[:30]}...")
-    prompt = f"""Rewrite the following news text in a professional and objective tone. The output must be in Arabic.\n\nOriginal Text:\n{text}\n\nRewritten Text:"""
+    """Rewrite text using OpenAI"""
     try:
-        response = await openai.ChatCompletion.acreate(
+        logger.info("✍️ جاري إعادة صياغة النص...")
+        
+        prompt = f"""أعد صياغة النص الإخباري التالي بأسلوب {REWRITE_STYLE} واحترافي وموضوعي. يجب أن تكون النتيجة بالعربية.
+النص الأصلي:
+{text}
+
+النص المعاد صياغته:"""
+        
+        response = openai.ChatCompletion.create(
             model="gpt-4-mini",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
             max_tokens=1024,
         )
+        
         rewritten = response.choices[0].message.content.strip()
-        print("✨ تمت إعادة الصياغة بنجاح.")
+        logger.info("✨ تمت إعادة الصياغة بنجاح!")
         return rewritten
     except Exception as e:
-        print(f"⚠️ فشلت إعادة الصياغة: {e}. سيتم استخدام النص الأصلي.")
+        logger.warning(f"⚠️ فشلت إعادة الصياغة: {e}")
         return text
 
-# ------------------ 3. معالج الرسائل ------------------ #
-
-@client.on(events.NewMessage(chats=SOURCE_CHANNELS))
-async def handle_new_message(event):
-    """معالجة الرسائل الجديدة عند وصولها"""
-    message = event.message
-    original_text = message.text
-
-    if not original_text:
-        print("📄 رسالة بدون نص، سيتم تجاهلها.")
-        return
-
-    print(f"📩 رسالة جديدة من قناة: {message.chat.username}")
-
-    # --- إعادة صياغة النص ---
-    rewritten_text = await rewrite_text_with_ai(original_text)
-
-    # --- إضافة رابط المصدر ---
-    source_link = f"https://t.me/{message.chat.username}/{message.id}"
-    final_text = f"{rewritten_text}\n\n<a href='{source_link}'>🔗 المصدر</a>"
-
-    # --- إرسال الرسالة النهائية ---
+async def send_message_to_channel(text: str, channel: str):
+    """Send message to Telegram channel"""
     try:
-        print(f"🚀 جاري إرسال الرسالة إلى {DESTINATION_CHANNEL}...")
-        await bot.send_message(
-            chat_id=DESTINATION_CHANNEL,
-            text=final_text,
-            parse_mode=telegram.ParseMode.HTML,
-            disable_web_page_preview=True
-        )
-        print("✅ تم الإرسال بنجاح!")
+        payload = {
+            "chat_id": channel,
+            "text": text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(TELEGRAM_SEND_MESSAGE_URL, json=payload) as response:
+                if response.status == 200:
+                    logger.info(f"✅ تم الإرسال بنجاح إلى {channel}!")
+                    return True
+                else:
+                    error_text = await response.text()
+                    logger.error(f"❌ فشل الإرسال: {error_text}")
+                    return False
     except Exception as e:
-        print(f"❌ فشل إرسال الرسالة: {e}")
+        logger.error(f"❌ خطأ في الإرسال: {e}")
+        return False
 
-# ------------------ 4. نقطة البداية ------------------ #
+def process_update_async(update: dict):
+    """Process update in a separate thread"""
+    try:
+        if "channel_post" not in update:
+            return
+        
+        message = update["channel_post"]
+        chat = message.get("chat", {})
+        chat_username = chat.get("username", "").strip().lower()
+        message_id = message.get("message_id")
+        text = message.get("text", "").strip()
+        
+        # Skip if no text
+        if not text:
+            logger.info("📄 رسالة بدون نص، سيتم تجاهلها.")
+            return
+        
+        logger.info(f"📩 رسالة جديدة من @{chat_username}")
+        
+        # Check if from source channels
+        is_from_source = False
+        for source_channel in SOURCE_CHANNELS:
+            if source_channel.lower() in chat_username:
+                is_from_source = True
+                break
+        
+        if not is_from_source:
+            logger.info(f"⏭️ تجاهل الرسالة - ليست من قنوات المصادر")
+            return
+        
+        # Check if it's an advertisement or unwanted content
+        if is_advertisement(text):
+            logger.info(f"🚫 تجاهل الرسالة - إعلان أو محتوى غير مرغوب")
+            return
+        
+        # Rewrite text
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        rewritten_text = loop.run_until_complete(rewrite_text_with_ai(text))
+        
+        # Build final message with custom format
+        # Add "عاجل" in red at the beginning
+        final_text = f"<b><span style='color: red;'>🔴 عاجل</span></b>\n\n{rewritten_text}\n\n<b>تابعنا لتكن أول بأول تعلم ما حولك</b>\n@AjeelNewsIq"
+        
+        # Send to destination
+        loop.run_until_complete(send_message_to_channel(final_text, DESTINATION_CHANNEL))
+        
+        loop.close()
+        
+    except Exception as e:
+        logger.error(f"❌ خطأ في معالجة التحديث: {e}")
 
-async def main():
-    """الدالة الرئيسية لتشغيل البوت"""
-    print("▶️ جاري تشغيل البوت...")
-    await client.start(phone=PHONE)
-    print(f"👂 البوت يستمع الآن للرسائل من: {", ".join(SOURCE_CHANNELS)}")
-    await client.run_until_disconnected()
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    """Webhook endpoint for Telegram updates"""
+    try:
+        update = request.get_json()
+        
+        # Process update in background thread
+        thread = Thread(target=process_update_async, args=(update,))
+        thread.daemon = True
+        thread.start()
+        
+        return {"ok": True}, 200
+    except Exception as e:
+        logger.error(f"❌ خطأ في معالجة الـ webhook: {e}")
+        return {"ok": False}, 500
+
+@app.route("/health", methods=["GET"])
+def health():
+    """Health check endpoint"""
+    return {"status": "ok"}, 200
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (ValueError, TypeError) as e:
-        # هذا الخطأ يحدث غالباً إذا كانت قيم API ID/Hash غير صحيحة
-        print(f"❌ خطأ فادح في الإعدادات: {e}")
-        print("   يرجى التأكد من أن قيم TELEGRAM_API_ID و TELEGRAM_API_HASH صحيحة في ملف .env")
-    except Exception as e:
-        print(f"🛑 توقف البوت بسبب خطأ غير متوقع: {e}")
-
-print("👋 البوت توقف عن العمل.")
-'
+    logger.info("▶️ جاري تشغيل البوت...")
+    logger.info(f"👂 البوت يستمع للرسائل من: {', '.join(SOURCE_CHANNELS)}")
+    logger.info(f"📤 البوت سيرسل الرسائل إلى: {DESTINATION_CHANNEL}")
+    
+    # Run Flask app
+    app.run(host="0.0.0.0", port=PORT, debug=False)

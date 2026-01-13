@@ -1,5 +1,4 @@
-telethon
-python-telegram-bot
+flask
+aiohttp
 openai
 python-dotenv
-dotenv
