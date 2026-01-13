@@ -134,13 +134,13 @@ async def rewrite_text_with_groq(text: str) -> str:
         }
         
         payload = {
-            "model": "mixtral-8x7b-32768",  # Fast and reliable model
+            "model": "llama-3.1-8b-instant",  # Fast and reliable model (currently supported)
             "messages": [
                 {"role": "system", "content": "أنت محرر أخبار محترف متخصص في إعادة صياغة الأخبار بشكل احترافي وأصلي"},
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.7,
-            "max_tokens": 1000,
+            "max_tokens": 500,
             "top_p": 0.9
         }
         
