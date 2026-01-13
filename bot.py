@@ -20,12 +20,12 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 SESSION_STRING = os.getenv("SESSION_STRING", "")
 SOURCE_CHANNELS = os.getenv("SOURCE_CHANNELS", "").split(",")
 DESTINATION_CHANNEL = os.getenv("DESTINATION_CHANNEL", "")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 REWRITE_STYLE = os.getenv("REWRITE_STYLE", "احترافي وموضوعي")
 FOOTER_TEXT = os.getenv("FOOTER_TEXT", "تابعنا على @AjeelNewsIq")
 
-# Groq API endpoint
-GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
+# OpenAI API endpoint
+OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 
 # Initialize Telegram client
 if SESSION_STRING:
@@ -51,93 +51,47 @@ def is_spam(text: str) -> bool:
     if re.search(url_pattern, text):
         return True
     
-    # Check for telegram links and mentions
-    if re.search(r'@\w+|t\.me/\w+', text):
-        return True
-    
     return False
 
-def replace_reporter_names(text: str) -> str:
-    """Replace reporter names from other channels with 'مراسلنا'"""
-    # List of reporter names to replace
+def clean_text(text: str) -> str:
+    """Clean and normalize text"""
+    # Remove prefixes
+    text = re.sub(r'^(عاجل|🔴|⚠️|📢|🚨)\s*\|\s*', '', text)
+    text = re.sub(r'^(عاجل|🔴|⚠️|📢|🚨)\s*', '', text)
+    
+    # Remove reporter names and replace with "مراسلنا"
     reporter_patterns = [
-        (r'مراسل\s+الجزيرة', 'مراسلنا'),
-        (r'مراسل\s+قناة\s+الجزيرة', 'مراسلنا'),
-        (r'مراسل\s+العربي', 'مراسلنا'),
-        (r'مراسل\s+قناة\s+العربي', 'مراسلنا'),
-        (r'مراسل\s+الاخبار', 'مراسلنا'),
-        (r'مراسل\s+قناة\s+الاخبار', 'مراسلنا'),
-        (r'مراسل\s+\w+', 'مراسلنا'),  # Any other reporter
-        (r'وفقا\s+ل(?:قناة)?\s+\w+', ''),  # Remove "وفقاً لـ"
-        (r'حسب\s+(?:قناة)?\s+\w+', ''),  # Remove "حسب"
-        (r'حسب\s+تقارير\s+\w+', ''),  # Remove "حسب تقارير"
+        r'(مراسل|مراسلة|مراسلنا|مراسليك|مراسل\w+)',
+        r'(من\s+\w+)',
     ]
     
-    for pattern, replacement in reporter_patterns:
-        text = re.sub(pattern, replacement, text)
+    for pattern in reporter_patterns:
+        text = re.sub(pattern, 'مراسلنا', text, flags=re.IGNORECASE)
+    
+    # Clean extra spaces
+    text = re.sub(r'\s+', ' ', text).strip()
     
     return text
 
-def clean_text(text: str) -> str:
-    """Clean text by removing common prefixes"""
-    text = text.strip()
+def rewrite_text_with_openai(text: str) -> str:
+    """Rewrite text using OpenAI API"""
+    if not OPENAI_API_KEY:
+        logger.warning("⚠️ OpenAI API Key غير موجود!")
+        return clean_text(text)
     
-    # Replace reporter names first
-    text = replace_reporter_names(text)
-    
-    # Remove "عاجل" and variations
-    if text.startswith("عاجل"):
-        text = text[4:].strip()
-    
-    # Remove red circle emoji
-    if text.startswith("🔴"):
-        text = text[1:].strip()
-    
-    # Remove pipes and separators
-    if text.startswith("|"):
-        text = text[1:].strip()
-    
-    return text
-
-async def rewrite_text_with_groq(text: str) -> str:
-    """Rewrite text using Groq API"""
     try:
-        logger.info("✍️ جاري إعادة صياغة النص باستخدام Groq...")
-        
-        # Clean the text first
-        text_to_rewrite = clean_text(text)
-        
-        if not text_to_rewrite:
-            logger.warning("⚠️ النص فارغ بعد التنظيف")
-            return text
-        
-        if not GROQ_API_KEY:
-            logger.error("❌ GROQ_API_KEY غير موجود")
-            return text_to_rewrite
-        
-        prompt = f"""أنت محرر أخبار محترف متخصص في إعادة صياغة الأخبار بأسلوب احترافي وأصلي وموضوعي.
-
-أعد صياغة النص الإخباري التالي بأسلوب {REWRITE_STYLE} واحترافي وموضوعي وشامل. يجب أن تكون النتيجة:
-- بالعربية الفصحى
-- طويلة وتفصيلية
-- أصلية وغير منقولة
-- خالية من أسماء المصادر الأخرى
-
-النص الأصلي:
-{text_to_rewrite}
-
-النص المعاد صياغته:"""
+        logger.info("✍️ جاري إعادة صياغة النص باستخدام OpenAI...")
         
         headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
             "Content-Type": "application/json"
         }
         
         payload = {
-            "model": "llama-3.1-8b-instant",  # Fast and reliable model (currently supported)
+            "model": "gpt-3.5-turbo",
             "messages": [
-                {"role": "system", "content": "أنت محرر أخبار محترف متخصص في إعادة صياغة الأخبار بشكل احترافي وأصلي"},
-                {"role": "user", "content": prompt}
+                {"role": "system", "content": "أنت محرر أخبار محترف متخصص في إعادة صياغة الأخبار بشكل احترافي وأصلي وموضوعي"},
+                {"role": "user", "content": f"أعد صياغة هذا الخبر بشكل احترافي وأصلي:\n\n{text}"}
             ],
             "temperature": 0.7,
             "max_tokens": 500,
@@ -145,109 +99,74 @@ async def rewrite_text_with_groq(text: str) -> str:
         }
         
         response = requests.post(
-            GROQ_API_URL,
+            OPENAI_API_URL,
             json=payload,
             headers=headers,
-            timeout=30
+            timeout=15
         )
         
         if response.status_code == 200:
             result = response.json()
-            
-            if "choices" in result and len(result["choices"]) > 0:
-                rewritten = result["choices"][0]["message"]["content"].strip()
-                
-                if rewritten:
-                    logger.info("✨ تمت إعادة الصياغة بنجاح عبر Groq!")
-                    return rewritten
-                else:
-                    logger.warning("⚠️ الرد من Groq فارغ")
-                    return text_to_rewrite
-            else:
-                logger.warning(f"⚠️ رد غير متوقع من Groq: {result}")
-                return text_to_rewrite
+            rewritten = result['choices'][0]['message']['content'].strip()
+            logger.info("✨ تمت إعادة الصياغة بنجاح!")
+            return rewritten
         else:
-            logger.error(f"❌ خطأ من Groq: {response.status_code} - {response.text}")
-            return text_to_rewrite
+            logger.warning(f"⚠️ خطأ من OpenAI: {response.status_code} - {response.text}")
+            return clean_text(text)
             
-    except requests.exceptions.Timeout:
-        logger.error("⏱️ انتهت مهلة الاتصال بـ Groq")
-        return text
-    except requests.exceptions.ConnectionError:
-        logger.error("🔌 فشل الاتصال بـ Groq")
-        return text
     except Exception as e:
         logger.error(f"❌ خطأ في إعادة الصياغة: {e}")
-        return text
+        return clean_text(text)
 
-async def send_to_destination(text: str):
-    """Send the rewritten text to the destination channel"""
+async def process_message(message):
+    """Process and forward message"""
     try:
-        # Add red circle emoji and footer
-        final_text = f"🔴 {text}\n\n{FOOTER_TEXT}"
+        text = message.text
         
-        await client.send_message(DESTINATION_CHANNEL, final_text)
-        logger.info(f"✅ تم الإرسال بنجاح إلى {DESTINATION_CHANNEL}!")
-        
-    except Exception as e:
-        logger.error(f"❌ فشل الإرسال: {e}")
-
-@client.on(events.NewMessage(chats=SOURCE_CHANNELS))
-async def handle_new_message(event):
-    """Handle new messages from source channels"""
-    try:
-        text = event.message.text
-        
-        if not text:
-            return
-        
-        logger.info(f"📨 رسالة جديدة من {event.chat_id}: {text[:100]}...")
-        
-        # Check if it's spam
-        if is_spam(text):
+        if not text or is_spam(text):
             logger.info("🚫 تم تجاهل الرسالة (إعلان أو محتوى غير مرغوب)")
             return
         
-        # Rewrite the text using Groq
-        rewritten_text = await rewrite_text_with_groq(text)
+        logger.info(f"📨 رسالة جديدة: {text[:50]}...")
+        
+        # Rewrite text
+        rewritten_text = rewrite_text_with_openai(text)
+        
+        # Add prefix and footer
+        final_text = f"🔴 {rewritten_text}\n\n{FOOTER_TEXT}"
         
         # Send to destination
-        await send_to_destination(rewritten_text)
+        await client.send_message(DESTINATION_CHANNEL, final_text)
+        logger.info("✅ تم الإرسال بنجاح إلى @AjeelNewsIq!")
         
     except Exception as e:
         logger.error(f"❌ خطأ في معالجة الرسالة: {e}")
 
+@client.on(events.NewMessage(chats=SOURCE_CHANNELS))
+async def handler(event):
+    """Handle new messages from source channels"""
+    await process_message(event.message)
+
 async def main():
     """Main function"""
+    if not client:
+        logger.error("❌ لم يتم تهيئة Telegram client!")
+        return
+    
     try:
-        if not client:
-            logger.error("❌ عميل Telegram غير متوفر")
-            return
-        
-        logger.info("📱 استخدام جلسة موجودة...")
-        
-        await client.connect()
-        
         logger.info("✅ جاري الاتصال بـ Telegram...")
+        await client.connect()
+        logger.info("✅ تم التفويض بنجاح!")
         
-        if await client.is_user_authorized():
-            logger.info("✅ تم التفويض بنجاح!")
-        else:
-            logger.error("❌ فشل التفويض")
-            return
-        
-        # Clean up source channels list
-        source_channels_clean = [ch.strip() for ch in SOURCE_CHANNELS if ch.strip()]
-        
-        logger.info(f"👂 البوت يستمع للرسائل من: {', '.join(source_channels_clean)}")
+        logger.info(f"👂 البوت يستمع للرسائل من: {', '.join(SOURCE_CHANNELS)}")
         logger.info(f"📤 البوت سيرسل الرسائل إلى: {DESTINATION_CHANNEL}")
-        logger.info(f"🤖 استخدام Groq API لإعادة الصياغة (مجاني وسريع)")
+        logger.info("🤖 استخدام OpenAI API لإعادة الصياغة")
         logger.info("🚀 البوت جاهز للاستقبال...")
         
         await client.run_until_disconnected()
         
     except Exception as e:
-        logger.error(f"❌ خطأ في البوت: {e}")
+        logger.error(f"❌ خطأ: {e}")
     finally:
         await client.disconnect()
 
