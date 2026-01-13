@@ -4,7 +4,7 @@ import asyncio
 import re
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-import google.generativeai as genai
+from openai import OpenAI
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -15,22 +15,14 @@ TELEGRAM_API_ID = int(os.getenv("TELEGRAM_API_ID"))
 TELEGRAM_API_HASH = os.getenv("TELEGRAM_API_HASH")
 TELEGRAM_PHONE = os.getenv("TELEGRAM_PHONE")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 SOURCE_CHANNELS = [ch.strip() for ch in os.getenv("SOURCE_CHANNELS", "").split(",")]
 DESTINATION_CHANNEL = os.getenv("DESTINATION_CHANNEL")
 REWRITE_STYLE = os.getenv("REWRITE_STYLE", "professional")
 SESSION_STRING = os.getenv("SESSION_STRING", "")
 FOOTER_TEXT = os.getenv("FOOTER_TEXT", "")
 
-# Initialize Gemini
-model = None
-try:
-    if GEMINI_API_KEY:
-        genai.configure(api_key=GEMINI_API_KEY)
-        model = genai.GenerativeModel('gemini-2.0-flash')
-        print("✅ Gemini API initialized successfully")
-except Exception as e:
-    print(f"❌ Error initializing Gemini: {e}")
+# Initialize OpenAI client (using Manus API)
+client_ai = OpenAI()
 
 # Configure logging
 logging.basicConfig(
@@ -105,12 +97,8 @@ def clean_text(text: str) -> str:
     return text
 
 async def rewrite_text_with_ai(text: str) -> str:
-    """Rewrite text using Google Gemini"""
+    """Rewrite text using OpenAI (Manus API)"""
     try:
-        if not model:
-            logger.warning("⚠️ Gemini model not available")
-            return text
-        
         logger.info("✍️ جاري إعادة صياغة النص...")
         
         # Clean the text first
@@ -127,14 +115,23 @@ async def rewrite_text_with_ai(text: str) -> str:
 
 النص المعاد صياغته:"""
         
-        response = model.generate_content(prompt)
-        rewritten = response.text.strip()
+        response = client_ai.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[
+                {"role": "system", "content": "أنت محرر أخبار احترافي متخصص في إعادة صياغة الأخبار بأسلوب احترافي وموضوعي."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=1000
+        )
+        
+        rewritten = response.choices[0].message.content.strip()
         
         if rewritten:
             logger.info("✨ تمت إعادة الصياغة بنجاح!")
             return rewritten
         else:
-            logger.warning("⚠️ الرد من Gemini فارغ")
+            logger.warning("⚠️ الرد من OpenAI فارغ")
             return text_to_rewrite
             
     except Exception as e:
@@ -190,6 +187,7 @@ async def main():
         
         logger.info(f"👂 البوت يستمع للرسائل من: {', '.join(SOURCE_CHANNELS)}")
         logger.info(f"📤 البوت سيرسل الرسائل إلى: {DESTINATION_CHANNEL}")
+        logger.info("🤖 استخدام OpenAI API (Manus) لإعادة الصياغة")
         
         @client.on(events.NewMessage(chats=SOURCE_CHANNELS))
         async def handle_new_message(event):
