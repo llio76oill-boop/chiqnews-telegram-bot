@@ -29,17 +29,35 @@ class DeepSeekRewriter:
         """
         إزالة بيانات المصدر من النص
         """
+        import re
+        
+        # Remove source mentions at the beginning
+        # e.g., "عاجل | مصدر عسكري لبناني مسؤول للجزيرة:"
+        # e.g., "عاجل | واشنطن بوست عن مصادر:"
+        text = re.sub(r'^عاجل\s*\|\s*[^:]+:\s*', '', text)
+        text = re.sub(r'^عاجل\s*\|\s*[^|]+\|\s*', '', text)
+        
+        # Remove source mentions in parentheses
+        text = re.sub(r'\([^)]*(?:مصدر|مراسل|وكالة)[^)]*\)', '', text)
+        
+        # Remove lines that are purely source attribution
         source_keywords = [
             'مصدر للحدث',
             'مراسل الحدث',
+            'مصدر عسكري',
+            'مصدر دبلوماسي',
+            'مصدر أمني',
             'مراسل',
-            'مصدر',
             'وكالة',
-            'تقرير',
+            'تقرير من',
             'حسب',
             'وفقاً لـ',
             'بحسب',
             'بناءً على',
+            'عن مصادر',
+            'عن مصدر',
+            'مسؤول ل',
+            'مسؤول في',
         ]
         
         lines = text.split('\n')
@@ -47,15 +65,23 @@ class DeepSeekRewriter:
         
         for line in lines:
             should_skip = False
+            # Skip lines that contain source keywords
             for keyword in source_keywords:
                 if keyword in line:
                     should_skip = True
                     break
             
+            # Skip lines that are just source attribution
+            if re.match(r'^[^:]*(?:مصدر|مراسل|وكالة)[^:]*:\s*$', line):
+                should_skip = True
+            
             if not should_skip and line.strip():
                 filtered_lines.append(line)
         
-        return '\n'.join(filtered_lines).strip()
+        result = '\n'.join(filtered_lines).strip()
+        # Clean up extra spaces
+        result = re.sub(r'\s+', ' ', result)
+        return result
     
     def rewrite(self, text: str, style: str = 'professional') -> Tuple[str, bool]:
         """
@@ -90,7 +116,7 @@ class DeepSeekRewriter:
                 "messages": [
                     {
                         "role": "system",
-                        "content": "أنت محرر نصوص احترافي متخصص في إعادة الصياغة. أعد صياغة النص بأسلوب احترافي مع الحفاظ على المعنى الأصلي. غير الأسلوب والتراكيب بشكل واضح. تذكر: ترامب هو الرئيس الحالي للولايات المتحدة (2025)، ورئيس سوريا اسمه احمد الشرع، ورئيس الوزراء العراقي الحالي هو محمد شياع السوداني."
+                        "content": "أنت محرر نصوص احترافي متخصص في إعادة الصياغة. أعد صياغة النص بأسلوب احترافي مع الحفاظ على المعنى الأصلي. غير الأسلوب والتراكيب بشكل واضح. تذكر: ترامب هو الرئيس الحالي للولايات المتحدة (2025)، ورئيس سوريا اسمه احمد الشرع، ورئيس الوزراء العراقي الحالي هو محمد شياع السوداني. لا تذكر مصادر الأخبار أو المراسلين أو الوكالات في النص المعاد صياغته."
                     },
                     {
                         "role": "user",
@@ -98,10 +124,10 @@ class DeepSeekRewriter:
                     }
                 ],
                 "temperature": 0.7,
-                "max_tokens": 1000
+                "max_tokens": 500
             }
             
-            response = requests.post(self.api_url, json=payload, headers=headers, timeout=10)
+            response = requests.post(self.api_url, json=payload, headers=headers, timeout=5)
             
             if response.status_code == 200:
                 result = response.json()
